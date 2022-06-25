@@ -44,13 +44,13 @@ pub fn infer_test() {
     tibe.infer(
       initial_environment,
       ELambda(
-        argument: "x",
+        arguments: ["x"],
         body: EApply(
           lambda: EApply(
             lambda: EVariable(name: "+"),
-            argument: EVariable(name: "x"),
+            arguments: [EVariable(name: "x")],
           ),
-          argument: EVariable(name: "x"),
+          arguments: [EVariable(name: "x")],
         ),
       ),
     ),

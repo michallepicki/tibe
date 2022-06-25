@@ -1,25 +1,27 @@
 //// [Type Inference by Example](https://ahnfelt.medium.com/type-inference-by-example-793d83f98382)
 //// but implemented in Gleam.
 //// 
-//// Part 5: Lambda Calculus
+//// Part 6a: Multiple function arguments
 
 import gleam/map.{Map}
 import gleam/list
+import gleam/string
+import gleam/int
 
-/// AST type representing a language similar to the Lambda Calculus.
+/// AST type representing our language.
 ///
 /// An Expression is the input of our typechecker program.
 /// In `infer_type` it is processed to Types, Substutions, Environment mappings,
 /// and Constraints.
 pub type Expression {
-  /// A lambda expression (an "abstraction") is like a simple function.
-  /// It is defined by one argument name and the expression it evaluates to
-  /// (function body).
-  ELambda(argument: String, body: Expression)
+  /// A lambda expression (an "abstraction") is a function.
+  /// It is defined by a list of argument names and the expression
+  /// it evaluates to (function body).
+  ELambda(arguments: List(String), body: Expression)
   /// An application is a function call. It is defined by a lambda expression
-  /// which will be called, and the argument expression being passed
+  /// which will be called, and the argument expressions being passed
   /// to this lambda.
-  EApply(lambda: Expression, argument: Expression)
+  EApply(lambda: Expression, arguments: List(Expression))
   /// An expression variable is a name that is bound to some value.
   /// This can be a lambda argument, or some predefined value
   /// like the "+" abstraction or "10" integer value.
@@ -103,12 +105,31 @@ pub fn infer_type(
   context: Context,
 ) -> Result(#(Type, Context), ScopingError) {
   case expression {
-    ELambda(argument: x, body: e) -> {
-      let #(t1, context) = fresh_type_variable(in: context)
-      let context =
-        Context(..context, environment: map.insert(context.environment, x, t1))
-      try #(t2, context) = infer_type(e, context)
-      let t = TConstructor(name: "Function1", type_parameters: [t1, t2])
+    ELambda(arguments: args, body: e) -> {
+      let #(argument_types_reversed, context) =
+        list.fold(
+          args,
+          #([], context),
+          fn(acc, arg_name) {
+            let #(argument_types_acc, context) = acc
+            let #(t, context) = fresh_type_variable(in: context)
+            let context =
+              Context(
+                ..context,
+                environment: map.insert(context.environment, arg_name, t),
+              )
+            #([t, ..argument_types_acc], context)
+          },
+        )
+      try #(return_type, context) = infer_type(e, context)
+      let type_parameters =
+        list.reverse([return_type, ..argument_types_reversed])
+      let type_name =
+        string.join(
+          ["Function", int.to_string(list.length(argument_types_reversed))],
+          with: "",
+        )
+      let t = TConstructor(name: type_name, type_parameters: type_parameters)
       Ok(#(t, context))
     }
     EVariable(name: x) ->
@@ -116,22 +137,39 @@ pub fn infer_type(
         Ok(t) -> Ok(#(t, context))
         Error(_) -> Error(NotInScope(x))
       }
-    EApply(lambda: e1, argument: e2) -> {
-      try #(t1, context) = infer_type(e1, context)
-      try #(t2, context) = infer_type(e2, context)
-      let #(t3, context) = fresh_type_variable(in: context)
+    EApply(lambda: lambda, arguments: args) -> {
+      try #(lambda_type, context) = infer_type(lambda, context)
+      try #(argument_types_reversed, context) =
+        list.fold(
+          args,
+          Ok(#([], context)),
+          fn(acc, arg) {
+            case acc {
+              Ok(#(argument_types_acc, context)) -> {
+                try #(t, context) = infer_type(arg, context)
+                Ok(#([t, ..argument_types_acc], context))
+              }
+              e -> e
+            }
+          },
+        )
+      let #(return_type_var, context) = fresh_type_variable(in: context)
+      let type_parameters =
+        list.reverse([return_type_var, ..argument_types_reversed])
+      let type_name =
+        string.join(["Function", int.to_string(list.length(args))], with: "")
       let context =
         Context(
           ..context,
           type_constraints: [
             CEquality(
-              t1,
-              TConstructor(name: "Function1", type_parameters: [t2, t3]),
+              lambda_type,
+              TConstructor(name: type_name, type_parameters: type_parameters),
             ),
             ..context.type_constraints
           ],
         )
-      Ok(#(t3, context))
+      Ok(#(return_type_var, context))
     }
   }
 }
