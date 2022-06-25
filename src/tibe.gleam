@@ -3,10 +3,8 @@
 //// 
 //// Part 5: Lambda Calculus
 
-import gleam/io
 import gleam/map.{Map}
 import gleam/list
-import gleam/int
 
 /// AST type representing a language similar to the Lambda Calculus.
 ///
@@ -219,7 +217,7 @@ pub fn occurs_in(substitution: Substitution, index: Int, t: Type) -> Bool {
 
 /// A function to recursively replace all type variables inside a type
 /// at the end of type checking with concrete types (where possible).
-fn substitute(substitution: Substitution, t: Type) -> Type {
+pub fn substitute(substitution: Substitution, t: Type) -> Type {
   case t {
     TVariable(_) ->
       case follow(substitution, t) {
@@ -237,63 +235,20 @@ fn substitute(substitution: Substitution, t: Type) -> Type {
   }
 }
 
-pub fn main() {
-  let initial_environment =
-    list.range(0, 99)
-    |> list.map(int.to_string)
-    |> list.map(fn(name) {
-      #(name, TConstructor(name: "Int", type_parameters: []))
-    })
-    |> map.from_list()
-
-  let initial_environment =
-    ["+", "-", "*", "/"]
-    |> list.map(fn(name) {
-      let t =
-        TConstructor(
-          name: "Function1",
-          type_parameters: [
-            TConstructor(name: "Int", type_parameters: []),
-            TConstructor(
-              name: "Function1",
-              type_parameters: [
-                TConstructor(name: "Int", type_parameters: []),
-                TConstructor(name: "Int", type_parameters: []),
-              ],
-            ),
-          ],
-        )
-      #(name, t)
-    })
-    |> map.from_list()
-    |> map.merge(initial_environment)
-
-  let infer = fn(environment: Environment, expression: Expression) -> Type {
-    let #(t, context) =
-      infer_type(
-        expression,
-        Context(
-          environment: environment,
-          type_constraints: [],
-          substitution: map.new(),
-        ),
-      )
-    let context = solve_constraints(context)
-    substitute(context.substitution, t)
-  }
-
-  io.debug(infer(
-    initial_environment,
-    ELambda(
-      argument: "x",
-      body: EApply(
-        lambda: EApply(
-          lambda: EVariable(name: "+"),
-          argument: EVariable(name: "x"),
-        ),
-        argument: EVariable(name: "x"),
+pub fn infer(environment: Environment, expression: Expression) -> Type {
+  let #(t, context) =
+    infer_type(
+      expression,
+      Context(
+        environment: environment,
+        type_constraints: [],
+        substitution: map.new(),
       ),
-    ),
-  ))
+    )
+  let context = solve_constraints(context)
+  substitute(context.substitution, t)
+}
+
+pub fn main() {
   Nil
 }
