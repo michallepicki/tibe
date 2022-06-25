@@ -76,39 +76,49 @@ pub type TypeConstraints =
 pub type Substitution =
   Map(Int, Type)
 
+pub type ScopingError {
+  NotInScope(name: String)
+}
+
+pub type UnifyError {
+  OccursError(index: Int, t: Type)
+  TypeMismatch(t1: Type, t2: Type)
+}
+
 /// A helper function used to assign a new index to a type variable,
 /// and initialize it correctly in the substitution map in the context.
 pub fn fresh_type_variable(in context: Context) -> #(Type, Context) {
   let i = map.size(context.substitution)
-  let result = TVariable(index: i)
+  let t = TVariable(index: i)
   let context =
-    Context(
-      ..context,
-      substitution: map.insert(context.substitution, i, result),
-    )
-  #(result, context)
+    Context(..context, substitution: map.insert(context.substitution, i, t))
+  #(t, context)
 }
 
 /// A function which takes an expression, and recursively turns it into
 /// (potentially unsolved) type variables, introducing new expression variables
 /// and checking that referenced expression variables exist along the way.
-pub fn infer_type(expression: Expression, context: Context) -> #(Type, Context) {
+pub fn infer_type(
+  expression: Expression,
+  context: Context,
+) -> Result(#(Type, Context), ScopingError) {
   case expression {
     ELambda(argument: x, body: e) -> {
       let #(t1, context) = fresh_type_variable(in: context)
       let context =
         Context(..context, environment: map.insert(context.environment, x, t1))
-      let #(t2, context) = infer_type(e, context)
+      try #(t2, context) = infer_type(e, context)
       let t = TConstructor(name: "Function1", type_parameters: [t1, t2])
-      #(t, context)
+      Ok(#(t, context))
     }
-    EVariable(name: x) -> {
-      assert Ok(t) = map.get(context.environment, x)
-      #(t, context)
-    }
+    EVariable(name: x) ->
+      case map.get(context.environment, x) {
+        Ok(t) -> Ok(#(t, context))
+        Error(_) -> Error(NotInScope(x))
+      }
     EApply(lambda: e1, argument: e2) -> {
-      let #(t1, context) = infer_type(e1, context)
-      let #(t2, context) = infer_type(e2, context)
+      try #(t1, context) = infer_type(e1, context)
+      try #(t2, context) = infer_type(e2, context)
       let #(t3, context) = fresh_type_variable(in: context)
       let context =
         Context(
@@ -121,7 +131,7 @@ pub fn infer_type(expression: Expression, context: Context) -> #(Type, Context) 
             ..context.type_constraints
           ],
         )
-      #(t3, context)
+      Ok(#(t3, context))
     }
   }
 }
@@ -136,7 +146,8 @@ pub fn solve_constraints(context: Context) -> Context {
       context.substitution,
       fn(substitution, constraint) {
         assert CEquality(t1, t2) = constraint
-        unify(substitution, t1, t2)
+        assert Ok(substitution) = unify(substitution, t1, t2)
+        substitution
       },
     )
   Context(..context, type_constraints: [], substitution: substitution)
@@ -144,24 +155,34 @@ pub fn solve_constraints(context: Context) -> Context {
 
 /// A function which checks that two types are (or can be) the same,
 /// raises an error if they cannot, and returns an updated Substitution mapping.
-pub fn unify(substitution: Substitution, t1: Type, t2: Type) -> Substitution {
+pub fn unify(
+  substitution: Substitution,
+  t1: Type,
+  t2: Type,
+) -> Result(Substitution, UnifyError) {
   case t1, t2 {
     TConstructor(name: name1, type_parameters: generics1), TConstructor(
       name: name2,
       type_parameters: generics2,
-    ) -> {
-      assert True = name1 == name2
-      assert True = list.length(generics1) == list.length(generics2)
-      list.zip(generics1, generics2)
-      |> list.fold(
-        substitution,
-        fn(substitution, t) {
-          assert #(t1, t2) = t
-          unify(substitution, t1, t2)
-        },
-      )
-    }
-    TVariable(index: i), TVariable(index: j) if i == j -> substitution
+    ) ->
+      case name1 != name2 || list.length(generics1) != list.length(generics2) {
+        True -> Error(TypeMismatch(t1, t2))
+        False ->
+          list.zip(generics1, generics2)
+          |> list.fold(
+            Ok(substitution),
+            fn(unify_result, t) {
+              case unify_result {
+                Ok(substitution) -> {
+                  let #(t1, t2) = t
+                  unify(substitution, t1, t2)
+                }
+                e -> e
+              }
+            },
+          )
+      }
+    TVariable(index: i), TVariable(index: j) if i == j -> Ok(substitution)
     t1, t2 ->
       case follow(substitution, t1) {
         Ok(t) -> unify(substitution, t, t2)
@@ -170,14 +191,17 @@ pub fn unify(substitution: Substitution, t1: Type, t2: Type) -> Substitution {
             Ok(t) -> unify(substitution, t1, t)
             Error(Nil) ->
               case t1, t2 {
-                TVariable(index: i), _ -> {
-                  assert False = occurs_in(substitution, i, t2)
-                  map.insert(substitution, i, t2)
-                }
-                _, TVariable(index: i) -> {
-                  assert False = occurs_in(substitution, i, t1)
-                  map.insert(substitution, i, t1)
-                }
+                TVariable(index: i), _ ->
+                  case occurs_in(substitution, i, t2) {
+                    False -> Ok(map.insert(substitution, i, t2))
+                    True -> Error(OccursError(i, t2))
+                  }
+                _, TVariable(index: i) ->
+                  case occurs_in(substitution, i, t1) {
+                    False -> Ok(map.insert(substitution, i, t1))
+                    True -> Error(OccursError(i, t1))
+                  }
+                _, _ -> Error(TypeMismatch(t1, t2))
               }
           }
       }
@@ -236,7 +260,7 @@ pub fn substitute(substitution: Substitution, t: Type) -> Type {
 }
 
 pub fn infer(environment: Environment, expression: Expression) -> Type {
-  let #(t, context) =
+  assert Ok(#(t, context)) =
     infer_type(
       expression,
       Context(
