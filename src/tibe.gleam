@@ -1,65 +1,125 @@
+//// [Type Inference by Example](https://ahnfelt.medium.com/type-inference-by-example-793d83f98382)
+//// but implemented in Gleam.
+//// 
+//// Part 5: Lambda Calculus
+
 import gleam/io
 import gleam/map.{Map}
 import gleam/list
 import gleam/int
 
-type Expression {
-  ELambda(x: String, e: Expression)
-  EApply(e1: Expression, e2: Expression)
-  EVariable(x: String)
+/// AST type representing a language similar to the Lambda Calculus.
+///
+/// An Expression is the input of our typechecker program.
+/// In `infer_type` it is processed to Types, Substutions, Environment mappings,
+/// and Constraints.
+pub type Expression {
+  /// A lambda expression (an "abstraction") is like a simple function.
+  /// It is defined by one argument name and the expression it evaluates to
+  /// (function body).
+  ELambda(argument: String, body: Expression)
+  /// An application is a function call. It is defined by a lambda expression
+  /// which will be called, and the argument expression being passed
+  /// to this lambda.
+  EApply(lambda: Expression, argument: Expression)
+  /// An expression variable is a name that is bound to some value.
+  /// This can be a lambda argument, or some predefined value
+  /// like the "+" abstraction or "10" integer value.
+  EVariable(name: String)
 }
 
-type Type {
-  TConstructor(name: String, generics: List(Type))
+/// The Type type represents the types of our small lanuguage.
+///
+/// It is used internally starting from the output of `infer_type` throughout
+/// the constraint solving (unification) to substitution. It is the output
+/// of our typechecker program.
+pub type Type {
+  /// A type constructor names a type and applies it to a list
+  /// of type parameters. For example, it can be a simple type like Int
+  /// with no type parameters, or a Function1 type with 2 type parameters:
+  /// its argument type and return type.
+  TConstructor(name: String, type_parameters: List(Type))
+  /// A type variable is an internal typechecker representation
+  /// of a non concrete type. It either was not yet inferred or substituted
+  /// to a concrete type, or (for polymorphic functions) it represents
+  /// a type parameter.
   TVariable(index: Int)
 }
 
-type Constraint {
+/// The context holds all data useful for type checking collected along the way.
+pub type Context {
+  Context(
+    environment: Environment,
+    type_constraints: TypeConstraints,
+    substitution: Substitution,
+  )
+}
+
+/// The environment maps bound value names to their types (either concrete
+/// types, or just type variables)
+pub type Environment =
+  Map(String, Type)
+
+/// A constraint represents the dependency between two type variables
+/// or concrete types, that still needs to be checked.
+pub type Constraint {
   CEquality(t1: Type, t2: Type)
 }
 
-type Context {
-  Context(
-    substitution: Map(Int, Type),
-    type_constraints: List(Constraint),
-    environment: Map(String, Type),
-  )
-}
+/// The list of type constraints is one of the results of the `infer_type`
+/// function, and get checked ("solved") using unification.
+pub type TypeConstraints =
+  List(Constraint)
 
-fn fresh_type_variable(context: Context) -> #(Type, Context) {
+/// The Substitution map holds the mapping from type variables indexes,
+/// to their actual type values. Initially for each type variable
+/// it points to itself. As the type constraints get solved in unification,
+/// it points to more concrete types for them.
+pub type Substitution =
+  Map(Int, Type)
+
+/// A helper function used to assign a new index to a type variable,
+/// and initialize it correctly in the substitution map in the context.
+pub fn fresh_type_variable(in context: Context) -> #(Type, Context) {
   let i = map.size(context.substitution)
-  let result = TVariable(i)
-  #(
-    result,
+  let result = TVariable(index: i)
+  let context =
     Context(
       ..context,
       substitution: map.insert(context.substitution, i, result),
-    ),
-  )
+    )
+  #(result, context)
 }
 
-fn infer_type(expression: Expression, context: Context) -> #(Type, Context) {
+/// A function which takes an expression, and recursively turns it into
+/// (potentially unsolved) type variables, introducing new expression variables
+/// and checking that referenced expression variables exist along the way.
+pub fn infer_type(expression: Expression, context: Context) -> #(Type, Context) {
   case expression {
-    ELambda(x, e) -> {
-      let #(t1, context) = fresh_type_variable(context)
+    ELambda(argument: x, body: e) -> {
+      let #(t1, context) = fresh_type_variable(in: context)
       let context =
         Context(..context, environment: map.insert(context.environment, x, t1))
       let #(t2, context) = infer_type(e, context)
-      #(TConstructor("Function1", [t1, t2]), context)
+      let t = TConstructor(name: "Function1", type_parameters: [t1, t2])
+      #(t, context)
     }
-    EVariable(x) -> {
+    EVariable(name: x) -> {
       assert Ok(t) = map.get(context.environment, x)
       #(t, context)
     }
-    EApply(e1, e2) -> {
+    EApply(lambda: e1, argument: e2) -> {
       let #(t1, context) = infer_type(e1, context)
       let #(t2, context) = infer_type(e2, context)
-      let #(t3, context) = fresh_type_variable(context)
+      let #(t3, context) = fresh_type_variable(in: context)
       let context =
         Context(
           ..context,
           type_constraints: [
-            CEquality(t1, TConstructor("Function1", [t2, t3])),
+            CEquality(
+              t1,
+              TConstructor(name: "Function1", type_parameters: [t2, t3]),
+            ),
             ..context.type_constraints
           ],
         )
@@ -68,7 +128,9 @@ fn infer_type(expression: Expression, context: Context) -> #(Type, Context) {
   }
 }
 
-fn solve_constraints(context: Context) -> Context {
+/// A function which "solves" (and gets rid of) type constraints
+/// using unification.
+pub fn solve_constraints(context: Context) -> Context {
   let substitution =
     context.type_constraints
     |> list.reverse()
@@ -79,12 +141,17 @@ fn solve_constraints(context: Context) -> Context {
         unify(substitution, t1, t2)
       },
     )
-  Context(..context, substitution: substitution, type_constraints: [])
+  Context(..context, type_constraints: [], substitution: substitution)
 }
 
-fn unify(substitution: Map(Int, Type), t1: Type, t2: Type) -> Map(Int, Type) {
+/// A function which checks that two types are (or can be) the same,
+/// raises an error if they cannot, and returns an updated Substitution mapping.
+pub fn unify(substitution: Substitution, t1: Type, t2: Type) -> Substitution {
   case t1, t2 {
-    TConstructor(name1, generics1), TConstructor(name2, generics2) -> {
+    TConstructor(name: name1, type_parameters: generics1), TConstructor(
+      name: name2,
+      type_parameters: generics2,
+    ) -> {
       assert True = name1 == name2
       assert True = list.length(generics1) == list.length(generics2)
       list.zip(generics1, generics2)
@@ -96,7 +163,7 @@ fn unify(substitution: Map(Int, Type), t1: Type, t2: Type) -> Map(Int, Type) {
         },
       )
     }
-    TVariable(i), TVariable(j) if i == j -> substitution
+    TVariable(index: i), TVariable(index: j) if i == j -> substitution
     t1, t2 ->
       case follow(substitution, t1) {
         Ok(t) -> unify(substitution, t, t2)
@@ -105,11 +172,11 @@ fn unify(substitution: Map(Int, Type), t1: Type, t2: Type) -> Map(Int, Type) {
             Ok(t) -> unify(substitution, t1, t)
             Error(Nil) ->
               case t1, t2 {
-                TVariable(i), _ -> {
+                TVariable(index: i), _ -> {
                   assert False = occurs_in(substitution, i, t2)
                   map.insert(substitution, i, t2)
                 }
-                _, TVariable(i) -> {
+                _, TVariable(index: i) -> {
                   assert False = occurs_in(substitution, i, t1)
                   map.insert(substitution, i, t1)
                 }
@@ -119,27 +186,30 @@ fn unify(substitution: Map(Int, Type), t1: Type, t2: Type) -> Map(Int, Type) {
   }
 }
 
-fn follow(substitution, to_follow) {
+/// A helper function used to get concrete types for type variables which
+/// already have been unified with some other type.
+pub fn follow(substitution: Substitution, to_follow: Type) -> Result(Type, Nil) {
   case to_follow {
-    TVariable(i) ->
+    TVariable(index: i) ->
       case map.get(substitution, i) {
         Ok(t) if t == to_follow -> Error(Nil)
         Ok(t) -> Ok(t)
         _ ->
-          todo("If we have a variable, it was initiated pointing to itself in the substitution map!")
+          todo("Internal type inference error! The type variable in the substitution map should have been initiated.")
       }
     _ -> Error(Nil)
   }
 }
 
-fn occurs_in(substitution, index, t) {
+/// A function to help with checking that the types are not recursive.
+pub fn occurs_in(substitution: Substitution, index: Int, t: Type) -> Bool {
   case t {
-    TVariable(i) ->
+    TVariable(index: i) ->
       case follow(substitution, t) {
         Ok(t) -> occurs_in(substitution, index, t)
         _ -> i == index
       }
-    TConstructor(_, generics) ->
+    TConstructor(name: _, type_parameters: generics) ->
       case list.find(generics, fn(t) { occurs_in(substitution, index, t) }) {
         Ok(_) -> True
         Error(Nil) -> False
@@ -147,56 +217,83 @@ fn occurs_in(substitution, index, t) {
   }
 }
 
-fn substitute(substitution, t: Type) -> Type {
+/// A function to recursively replace all type variables inside a type
+/// at the end of type checking with concrete types (where possible).
+fn substitute(substitution: Substitution, t: Type) -> Type {
   case t {
     TVariable(_) ->
       case follow(substitution, t) {
         Ok(t) -> substitute(substitution, t)
         _ -> t
       }
-    TConstructor(name, generics) ->
+    TConstructor(name: name, type_parameters: generics) ->
       TConstructor(
-        name,
-        list.map(generics, fn(t) { substitute(substitution, t) }),
+        name: name,
+        type_parameters: list.map(
+          generics,
+          fn(t) { substitute(substitution, t) },
+        ),
       )
   }
 }
 
 pub fn main() {
   let initial_environment =
+    list.range(0, 99)
+    |> list.map(int.to_string)
+    |> list.map(fn(name) {
+      #(name, TConstructor(name: "Int", type_parameters: []))
+    })
+    |> map.from_list()
+
+  let initial_environment =
     ["+", "-", "*", "/"]
     |> list.map(fn(name) {
       let t =
         TConstructor(
-          "Function1",
-          [
-            TConstructor("Int", []),
+          name: "Function1",
+          type_parameters: [
+            TConstructor(name: "Int", type_parameters: []),
             TConstructor(
-              "Function1",
-              [TConstructor("Int", []), TConstructor("Int", [])],
+              name: "Function1",
+              type_parameters: [
+                TConstructor(name: "Int", type_parameters: []),
+                TConstructor(name: "Int", type_parameters: []),
+              ],
             ),
           ],
         )
       #(name, t)
     })
     |> map.from_list()
-  let initial_environment =
-    list.range(0, 99)
-    |> list.map(int.to_string)
-    |> list.map(fn(name) { #(name, TConstructor("Int", [])) })
-    |> map.from_list()
     |> map.merge(initial_environment)
 
-  let infer = fn(environment: Map(String, Type), expression: Expression) -> Type {
+  let infer = fn(environment: Environment, expression: Expression) -> Type {
     let #(t, context) =
-      infer_type(expression, Context(map.new(), [], environment))
+      infer_type(
+        expression,
+        Context(
+          environment: environment,
+          type_constraints: [],
+          substitution: map.new(),
+        ),
+      )
     let context = solve_constraints(context)
     substitute(context.substitution, t)
   }
 
   io.debug(infer(
     initial_environment,
-    ELambda("x", EApply(EApply(EVariable("+"), EVariable("x")), EVariable("x"))),
+    ELambda(
+      argument: "x",
+      body: EApply(
+        lambda: EApply(
+          lambda: EVariable(name: "+"),
+          argument: EVariable(name: "x"),
+        ),
+        argument: EVariable(name: "x"),
+      ),
+    ),
   ))
   Nil
 }
