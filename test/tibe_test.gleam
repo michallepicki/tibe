@@ -10,6 +10,29 @@ pub fn main() {
 }
 
 pub fn infer_test() {
+  should.equal(
+    tibe.infer(
+      initial_environment(),
+      ELambda(
+        arguments: ["x", "y"],
+        body: EApply(
+          lambda: EVariable(name: "+"),
+          arguments: [EVariable(name: "x"), EVariable(name: "y")],
+        ),
+      ),
+    ),
+    TConstructor(
+      "Function2",
+      [
+        TConstructor("Int", []),
+        TConstructor("Int", []),
+        TConstructor("Int", []),
+      ],
+    ),
+  )
+}
+
+fn initial_environment() {
   let initial_environment =
     list.range(0, 99)
     |> list.map(int.to_string)
@@ -18,45 +41,20 @@ pub fn infer_test() {
     })
     |> map.from_list()
 
-  let initial_environment =
-    ["+", "-", "*", "/"]
-    |> list.map(fn(name) {
-      let t =
-        TConstructor(
-          name: "Function1",
-          type_parameters: [
-            TConstructor(name: "Int", type_parameters: []),
-            TConstructor(
-              name: "Function1",
-              type_parameters: [
-                TConstructor(name: "Int", type_parameters: []),
-                TConstructor(name: "Int", type_parameters: []),
-              ],
-            ),
-          ],
-        )
-      #(name, t)
-    })
-    |> map.from_list()
-    |> map.merge(initial_environment)
+  ["+", "-", "*", "/"]
+  |> list.map(fn(name) {
+    let t =
+      TConstructor(
+        name: "Function2",
+        type_parameters: [
+          TConstructor(name: "Int", type_parameters: []),
+          TConstructor(name: "Int", type_parameters: []),
+          TConstructor(name: "Int", type_parameters: []),
+        ],
+      )
 
-  should.equal(
-    tibe.infer(
-      initial_environment,
-      ELambda(
-        arguments: ["x"],
-        body: EApply(
-          lambda: EApply(
-            lambda: EVariable(name: "+"),
-            arguments: [EVariable(name: "x")],
-          ),
-          arguments: [EVariable(name: "x")],
-        ),
-      ),
-    ),
-    TConstructor(
-      "Function1",
-      [TConstructor("Int", []), TConstructor("Int", [])],
-    ),
-  )
+    #(name, t)
+  })
+  |> map.from_list()
+  |> map.merge(initial_environment)
 }
