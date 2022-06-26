@@ -1,8 +1,8 @@
 //// [Type Inference by Example](https://ahnfelt.medium.com/type-inference-by-example-793d83f98382)
 //// but implemented in Gleam.
 //// 
-//// Part 6c: Multiple function arguments, let expressions,
-//// int and string literals
+//// Part 6d: Multiple function arguments, let expressions,
+//// int and string literals, arrays
 
 import gleam/map.{Map}
 import gleam/list
@@ -34,6 +34,8 @@ pub type Expression {
   EInt(value: Int)
   /// Literal string expression
   EString(value: String)
+  /// Literal array expression
+  EArray(items: List(Expression))
 }
 
 /// The Type type represents the types of our small lanuguage.
@@ -210,6 +212,32 @@ pub fn infer_type(
       }
     EInt(_) -> Ok(#(TConstructor("Int", []), context))
     EString(_) -> Ok(#(TConstructor("String", []), context))
+    EArray(items: items) -> {
+      let #(item_type_var, context) = fresh_type_variable(context)
+      try context =
+        items
+        |> list.fold(
+          Ok(context),
+          fn(context_result, item_expression) {
+            case context_result {
+              Ok(context) -> {
+                try #(t, context) = infer_type(item_expression, context)
+                let context =
+                  Context(
+                    ..context,
+                    type_constraints: [
+                      CEquality(item_type_var, t),
+                      ..context.type_constraints
+                    ],
+                  )
+                Ok(context)
+              }
+              e -> e
+            }
+          },
+        )
+      Ok(#(TConstructor("Array", [item_type_var]), context))
+    }
   }
 }
 

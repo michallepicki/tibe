@@ -1,14 +1,21 @@
 import gleeunit
 import gleeunit/should
 import tibe.{
-  EApply, EInt, ELambda, ELet, EString, EVariable, TConstructor, TypeCheckUnifyError,
-  TypeMismatch,
+  EApply, EArray, EInt, ELambda, ELet, EString, EVariable, NotInScope, TConstructor,
+  TypeCheckScopingError, TypeCheckUnifyError, TypeMismatch,
 }
 import gleam/list
 import gleam/map
 
 pub fn main() {
   gleeunit.main()
+}
+
+pub fn scope_error_test() {
+  should.equal(
+    tibe.infer(initial_environment(), EVariable(name: "x")),
+    Error(TypeCheckScopingError(NotInScope("x"))),
+  )
 }
 
 pub fn lambda_test() {
@@ -34,6 +41,22 @@ pub fn lambda_test() {
   )
 }
 
+pub fn lambda_mismatch_test() {
+  should.equal(
+    tibe.infer(
+      initial_environment(),
+      EApply(
+        lambda: EVariable(name: "+"),
+        arguments: [EInt(value: 10), EString(value: "some_string")],
+      ),
+    ),
+    Error(TypeCheckUnifyError(TypeMismatch(
+      TConstructor(name: "Int", type_parameters: []),
+      TConstructor(name: "String", type_parameters: []),
+    ))),
+  )
+}
+
 pub fn let_test() {
   should.equal(
     tibe.infer(
@@ -51,14 +74,21 @@ pub fn let_test() {
   )
 }
 
-pub fn type_mismatch_test() {
+pub fn array_test() {
   should.equal(
     tibe.infer(
       initial_environment(),
-      EApply(
-        lambda: EVariable(name: "+"),
-        arguments: [EInt(value: 10), EString(value: "some_string")],
-      ),
+      EArray(items: [EInt(value: 10), EInt(value: 20)]),
+    ),
+    Ok(TConstructor("Array", [TConstructor("Int", [])])),
+  )
+}
+
+pub fn array_mismatch_test() {
+  should.equal(
+    tibe.infer(
+      initial_environment(),
+      EArray(items: [EInt(value: 10), EString(value: "20")]),
     ),
     Error(TypeCheckUnifyError(TypeMismatch(
       TConstructor(name: "Int", type_parameters: []),
