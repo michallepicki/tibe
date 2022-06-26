@@ -87,14 +87,22 @@ pub type UnifyError {
   TypeMismatch(t1: Type, t2: Type)
 }
 
-/// A helper function used to assign a new index to a type variable,
-/// and initialize it correctly in the substitution map in the context.
-pub fn fresh_type_variable(in context: Context) -> #(Type, Context) {
-  let i = map.size(context.substitution)
-  let t = TVariable(index: i)
-  let context =
-    Context(..context, substitution: map.insert(context.substitution, i, t))
-  #(t, context)
+pub fn main() {
+  Nil
+}
+
+pub fn infer(environment: Environment, expression: Expression) -> Type {
+  assert Ok(#(t, context)) =
+    infer_type(
+      expression,
+      Context(
+        environment: environment,
+        type_constraints: [],
+        substitution: map.new(),
+      ),
+    )
+  let context = solve_constraints(context)
+  substitute(context.substitution, t)
 }
 
 /// A function which takes an expression, and recursively turns it into
@@ -174,6 +182,16 @@ pub fn infer_type(
   }
 }
 
+/// A helper function used to assign a new index to a type variable,
+/// and initialize it correctly in the substitution map in the context.
+pub fn fresh_type_variable(in context: Context) -> #(Type, Context) {
+  let i = map.size(context.substitution)
+  let t = TVariable(index: i)
+  let context =
+    Context(..context, substitution: map.insert(context.substitution, i, t))
+  #(t, context)
+}
+
 /// A function which "solves" (and gets rid of) type constraints
 /// using unification.
 pub fn solve_constraints(context: Context) -> Context {
@@ -246,8 +264,8 @@ pub fn unify(
   }
 }
 
-/// A helper function used to get concrete types for type variables which
-/// already have been unified with some other type.
+/// A helper function used to get the type some type variable (to_follow)
+/// has been already unified with.
 pub fn follow(substitution: Substitution, to_follow: Type) -> Result(Type, Nil) {
   case to_follow {
     TVariable(index: i) ->
@@ -295,22 +313,4 @@ pub fn substitute(substitution: Substitution, t: Type) -> Type {
         ),
       )
   }
-}
-
-pub fn infer(environment: Environment, expression: Expression) -> Type {
-  assert Ok(#(t, context)) =
-    infer_type(
-      expression,
-      Context(
-        environment: environment,
-        type_constraints: [],
-        substitution: map.new(),
-      ),
-    )
-  let context = solve_constraints(context)
-  substitute(context.substitution, t)
-}
-
-pub fn main() {
-  Nil
 }
