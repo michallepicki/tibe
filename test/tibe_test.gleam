@@ -1,8 +1,10 @@
 import gleeunit
 import gleeunit/should
-import tibe.{EApply, ELambda, ELet, EVariable, TConstructor}
+import tibe.{
+  EApply, EInt, ELambda, ELet, EString, EVariable, TConstructor, TypeCheckUnifyError,
+  TypeMismatch,
+}
 import gleam/list
-import gleam/int
 import gleam/map
 
 pub fn main() {
@@ -21,14 +23,14 @@ pub fn lambda_test() {
         ),
       ),
     ),
-    TConstructor(
+    Ok(TConstructor(
       "Function2",
       [
         TConstructor("Int", []),
         TConstructor("Int", []),
         TConstructor("Int", []),
       ],
-    ),
+    )),
   )
 }
 
@@ -38,26 +40,34 @@ pub fn let_test() {
       initial_environment(),
       ELet(
         name: "x",
-        value: EVariable(name: "10"),
+        value: EInt(value: 10),
         body: EApply(
           lambda: EVariable(name: "+"),
           arguments: [EVariable(name: "x"), EVariable(name: "x")],
         ),
       ),
     ),
-    TConstructor("Int", []),
+    Ok(TConstructor("Int", [])),
+  )
+}
+
+pub fn type_mismatch_test() {
+  should.equal(
+    tibe.infer(
+      initial_environment(),
+      EApply(
+        lambda: EVariable(name: "+"),
+        arguments: [EInt(value: 10), EString(value: "some_string")],
+      ),
+    ),
+    Error(TypeCheckUnifyError(TypeMismatch(
+      TConstructor(name: "Int", type_parameters: []),
+      TConstructor(name: "String", type_parameters: []),
+    ))),
   )
 }
 
 fn initial_environment() {
-  let initial_environment =
-    list.range(0, 99)
-    |> list.map(int.to_string)
-    |> list.map(fn(name) {
-      #(name, TConstructor(name: "Int", type_parameters: []))
-    })
-    |> map.from_list()
-
   ["+", "-", "*", "/"]
   |> list.map(fn(name) {
     let t =
@@ -73,5 +83,4 @@ fn initial_environment() {
     #(name, t)
   })
   |> map.from_list()
-  |> map.merge(initial_environment)
 }

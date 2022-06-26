@@ -1,7 +1,8 @@
 //// [Type Inference by Example](https://ahnfelt.medium.com/type-inference-by-example-793d83f98382)
 //// but implemented in Gleam.
 //// 
-//// Part 6b: Multiple function arguments, let expressions
+//// Part 6c: Multiple function arguments, let expressions,
+//// int and string literals
 
 import gleam/map.{Map}
 import gleam/list
@@ -27,8 +28,12 @@ pub type Expression {
   ELet(name: String, value: Expression, body: Expression)
   /// An expression variable is a name that is bound to some value.
   /// This can be a lambda argument, a let binding, or some predefined value
-  /// like the "+" abstraction or "10" integer value.
+  /// like the "+" abstraction.
   EVariable(name: String)
+  /// Literal integer expression
+  EInt(value: Int)
+  /// Literal string expression
+  EString(value: String)
 }
 
 /// The Type type represents the types of our small lanuguage.
@@ -90,22 +95,34 @@ pub type UnifyError {
   TypeMismatch(t1: Type, t2: Type)
 }
 
+pub type TypeCheckError {
+  TypeCheckScopingError(ScopingError)
+  TypeCheckUnifyError(UnifyError)
+}
+
 pub fn main() {
   Nil
 }
 
-pub fn infer(environment: Environment, expression: Expression) -> Type {
-  assert Ok(#(t, context)) =
-    infer_type(
-      expression,
-      Context(
-        environment: environment,
-        type_constraints: [],
-        substitution: map.new(),
-      ),
-    )
-  let context = solve_constraints(context)
-  substitute(context.substitution, t)
+pub fn infer(
+  environment: Environment,
+  expression: Expression,
+) -> Result(Type, TypeCheckError) {
+  case infer_type(
+    expression,
+    Context(
+      environment: environment,
+      type_constraints: [],
+      substitution: map.new(),
+    ),
+  ) {
+    Error(scoping_error) -> Error(TypeCheckScopingError(scoping_error))
+    Ok(#(t, context)) ->
+      case solve_constraints(context) {
+        Ok(context) -> Ok(substitute(context.substitution, t))
+        Error(unify_error) -> Error(TypeCheckUnifyError(unify_error))
+      }
+  }
 }
 
 /// A function which takes an expression, and recursively turns it into
@@ -191,6 +208,8 @@ pub fn infer_type(
         Ok(t) -> Ok(#(t, context))
         Error(_) -> Error(NotInScope(x))
       }
+    EInt(_) -> Ok(#(TConstructor("Int", []), context))
+    EString(_) -> Ok(#(TConstructor("String", []), context))
   }
 }
 
@@ -206,23 +225,28 @@ pub fn fresh_type_variable(in context: Context) -> #(Type, Context) {
 
 /// A function which "solves" (and gets rid of) type constraints
 /// using unification.
-pub fn solve_constraints(context: Context) -> Context {
-  let substitution =
+pub fn solve_constraints(context: Context) -> Result(Context, UnifyError) {
+  try substitution =
     context.type_constraints
     |> list.reverse()
     |> list.fold(
-      context.substitution,
-      fn(substitution, constraint) {
-        assert CEquality(t1, t2) = constraint
-        assert Ok(substitution) = unify(substitution, t1, t2)
-        substitution
+      Ok(context.substitution),
+      fn(substitution_result, constraint) {
+        case substitution_result {
+          Ok(substitution) -> {
+            assert CEquality(t1, t2) = constraint
+            unify(substitution, t1, t2)
+          }
+          e -> e
+        }
       },
     )
-  Context(..context, type_constraints: [], substitution: substitution)
+  Ok(Context(..context, type_constraints: [], substitution: substitution))
 }
 
 /// A function which checks that two types are (or can be) the same,
-/// raises an error if they cannot, and returns an updated Substitution mapping.
+/// returns an error if they cannot, and returns an updated Substitution
+/// mapping.
 pub fn unify(
   substitution: Substitution,
   t1: Type,
