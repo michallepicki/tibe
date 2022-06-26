@@ -1,7 +1,7 @@
 //// [Type Inference by Example](https://ahnfelt.medium.com/type-inference-by-example-793d83f98382)
 //// but implemented in Gleam.
 //// 
-//// Part 6a: Multiple function arguments
+//// Part 6b: Multiple function arguments, let expressions
 
 import gleam/map.{Map}
 import gleam/list
@@ -280,13 +280,13 @@ pub fn unify(
 /// has been already unified with.
 pub fn follow(substitution: Substitution, to_follow: Type) -> Result(Type, Nil) {
   case to_follow {
-    TVariable(index: i) ->
-      case map.get(substitution, i) {
-        Ok(t) if t == to_follow -> Error(Nil)
-        Ok(t) -> Ok(t)
-        _ ->
-          todo("Internal type inference error! The type variable in the substitution map should have been initiated.")
+    TVariable(index: i) -> {
+      assert Ok(t) = map.get(substitution, i)
+      case t != to_follow {
+        True -> Ok(t)
+        False -> Error(Nil)
       }
+    }
     _ -> Error(Nil)
   }
 }
