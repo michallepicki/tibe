@@ -22,8 +22,11 @@ pub type Expression {
   /// which will be called, and the argument expressions being passed
   /// to this lambda.
   EApply(lambda: Expression, arguments: List(Expression))
+  /// A let expression allows to bind some value to a name, so that it can be
+  /// accessed in the current scope (inside of let's body).
+  ELet(name: String, value: Expression, body: Expression)
   /// An expression variable is a name that is bound to some value.
-  /// This can be a lambda argument, or some predefined value
+  /// This can be a lambda argument, a let binding, or some predefined value
   /// like the "+" abstraction or "10" integer value.
   EVariable(name: String)
 }
@@ -140,11 +143,6 @@ pub fn infer_type(
       let t = TConstructor(name: type_name, type_parameters: type_parameters)
       Ok(#(t, context))
     }
-    EVariable(name: x) ->
-      case map.get(context.environment, x) {
-        Ok(t) -> Ok(#(t, context))
-        Error(_) -> Error(NotInScope(x))
-      }
     EApply(lambda: lambda, arguments: args) -> {
       try #(lambda_type, context) = infer_type(lambda, context)
       try #(argument_types_reversed, context) =
@@ -179,6 +177,20 @@ pub fn infer_type(
         )
       Ok(#(return_type_var, context))
     }
+    ELet(name: name, value: value, body: body) -> {
+      try #(value_type, context) = infer_type(value, context)
+      let context =
+        Context(
+          ..context,
+          environment: map.insert(context.environment, name, value_type),
+        )
+      infer_type(body, context)
+    }
+    EVariable(name: x) ->
+      case map.get(context.environment, x) {
+        Ok(t) -> Ok(#(t, context))
+        Error(_) -> Error(NotInScope(x))
+      }
   }
 }
 

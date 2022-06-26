@@ -1,6 +1,6 @@
 import gleeunit
 import gleeunit/should
-import tibe.{EApply, ELambda, EVariable, TConstructor}
+import tibe.{EApply, ELambda, ELet, EVariable, TConstructor}
 import gleam/list
 import gleam/int
 import gleam/map
@@ -9,7 +9,7 @@ pub fn main() {
   gleeunit.main()
 }
 
-pub fn infer_test() {
+pub fn lambda_test() {
   should.equal(
     tibe.infer(
       initial_environment(),
@@ -29,6 +29,23 @@ pub fn infer_test() {
         TConstructor("Int", []),
       ],
     ),
+  )
+}
+
+pub fn let_test() {
+  should.equal(
+    tibe.infer(
+      initial_environment(),
+      ELet(
+        name: "x",
+        value: EVariable(name: "10"),
+        body: EApply(
+          lambda: EVariable(name: "+"),
+          arguments: [EVariable(name: "x"), EVariable(name: "x")],
+        ),
+      ),
+    ),
+    TConstructor("Int", []),
   )
 }
 
