@@ -1,7 +1,7 @@
 //// [Type Inference by Example](https://ahnfelt.medium.com/type-inference-by-example-793d83f98382)
 //// but implemented in Gleam.
 //// 
-//// Part 6e: type annotations
+//// Part 6f: infer_type returns updated expressions
 
 import gleam/map.{Map}
 import gleam/list
@@ -55,7 +55,8 @@ pub type FunctionArgument {
 ///
 /// It is used internally starting from the input (expected type)
 /// of `infer_type` throughout the constraint solving (unification)
-/// to substitution. It is the output of our typechecker program.
+/// to substitution. At the end of our typechecker program, Expressions
+/// have their maybe_type fields filled in.
 pub type Type {
   /// A type constructor names a type and applies it to a list
   /// of type parameters. For example, it can be a simple type like Int
@@ -78,8 +79,8 @@ pub type Context {
   )
 }
 
-/// The environment maps bound value names to their types (either concrete
-/// types, or just type variables)
+/// The environment maps bound value names to their types
+/// (either concrete types, or just type variables).
 pub type Environment =
   Map(String, Type)
 
@@ -132,7 +133,7 @@ pub fn infer(
   let #(t, context) = fresh_type_variable(context)
   case infer_type(expression, t, context) {
     Error(scoping_error) -> Error(TypeCheckScopingError(scoping_error))
-    Ok(context) ->
+    Ok(#(_expression, context)) ->
       case solve_constraints(context) {
         Ok(context) -> Ok(substitute(context.substitution, t))
         Error(unify_error) -> Error(TypeCheckUnifyError(unify_error))
@@ -149,12 +150,12 @@ pub fn infer_type(
   expression: Expression,
   expected_type: Type,
   context: Context,
-) -> Result(Context, ScopingError) {
+) -> Result(#(Expression, Context), ScopingError) {
   case expression {
     EFunction(arguments: args, maybe_return_type: maybe_return_type, body: body) -> {
       let #(return_type, context) =
         type_or_fresh_variable(maybe_return_type, context)
-      let #(_arguments_reversed, arg_types_reversed, context) =
+      let #(arguments_reversed, arg_types_reversed, context) =
         list.fold(
           args,
           #([], [], context),
@@ -172,13 +173,16 @@ pub fn infer_type(
                 environment: map.insert(context.environment, arg_name, t),
               )
             #(
-              [#(arg_name, Some(t)), ..arguments_acc],
+              [
+                FunctionArgument(name: arg_name, maybe_argument_type: Some(t)),
+                ..arguments_acc
+              ],
               [t, ..arg_types_acc],
               context,
             )
           },
         )
-      try context = infer_type(body, return_type, context)
+      try #(body, context) = infer_type(body, return_type, context)
       let type_parameters = list.reverse([return_type, ..arg_types_reversed])
       let type_name =
         string.join(
@@ -187,7 +191,14 @@ pub fn infer_type(
         )
       let t = TConstructor(name: type_name, type_parameters: type_parameters)
       let context = constrain_type(expected_type, t, context)
-      Ok(context)
+      Ok(#(
+        EFunction(
+          arguments: list.reverse(arguments_reversed),
+          maybe_return_type: Some(return_type),
+          body: body,
+        ),
+        context,
+      ))
     }
     EApply(function: function, arguments: arguments) -> {
       let #(argument_types_reversed, context) =
@@ -209,16 +220,24 @@ pub fn infer_type(
         list.reverse([expected_type, ..argument_types_reversed])
       let function_type =
         TConstructor(name: type_name, type_parameters: type_parameters)
-      try context = infer_type(function, function_type, context)
-      arguments
-      |> list.zip(list.reverse(argument_types_reversed))
-      |> list.try_fold(
+      try #(function, context) = infer_type(function, function_type, context)
+      try #(arguments_reversed, context) =
+        arguments
+        |> list.zip(list.reverse(argument_types_reversed))
+        |> list.try_fold(
+          #([], context),
+          fn(acc, argument_with_type) {
+            let #(arguments_acc, context) = acc
+            let #(argument, argument_type) = argument_with_type
+            try #(argument, context) =
+              infer_type(argument, argument_type, context)
+            Ok(#([argument, ..arguments_acc], context))
+          },
+        )
+      Ok(#(
+        EApply(function: function, arguments: list.reverse(arguments_reversed)),
         context,
-        fn(context, argument_with_type) {
-          let #(argument, argument_type) = argument_with_type
-          infer_type(argument, argument_type, context)
-        },
-      )
+      ))
     }
     ELet(
       name: name,
@@ -228,36 +247,61 @@ pub fn infer_type(
     ) -> {
       let #(value_type, context) =
         type_or_fresh_variable(maybe_value_type, context)
-      try context = infer_type(value, value_type, context)
+      try #(value, context) = infer_type(value, value_type, context)
       let context =
         Context(
           ..context,
           environment: map.insert(context.environment, name, value_type),
         )
-      infer_type(body, expected_type, context)
+      try #(body, context) = infer_type(body, expected_type, context)
+      Ok(#(
+        ELet(
+          name: name,
+          maybe_value_type: Some(value_type),
+          value: value,
+          body: body,
+        ),
+        context,
+      ))
     }
     EVariable(name: x) ->
       case map.get(context.environment, x) {
-        Ok(t) -> Ok(constrain_type(expected_type, t, context))
+        Ok(t) -> Ok(#(expression, constrain_type(expected_type, t, context)))
         Error(_) -> Error(NotInScope(x))
       }
     EInt(_) ->
-      Ok(constrain_type(expected_type, TConstructor("Int", []), context))
+      Ok(#(
+        expression,
+        constrain_type(expected_type, TConstructor("Int", []), context),
+      ))
     EString(_) ->
-      Ok(constrain_type(expected_type, TConstructor("String", []), context))
+      Ok(#(
+        expression,
+        constrain_type(expected_type, TConstructor("String", []), context),
+      ))
     EArray(maybe_item_type: maybe_item_type, items: items) -> {
       let #(item_type, context) =
         type_or_fresh_variable(maybe_item_type, context)
-      try context =
+      try #(items_reversed, context) =
         list.try_fold(
           items,
-          context,
-          fn(context, item) { infer_type(item, item_type, context) },
+          #([], context),
+          fn(acc, item) {
+            let #(items_acc, context) = acc
+            try #(item, context) = infer_type(item, item_type, context)
+            Ok(#([item, ..items_acc], context))
+          },
         )
-      Ok(constrain_type(
-        expected_type,
-        TConstructor("Array", [item_type]),
-        context,
+      Ok(#(
+        EArray(
+          maybe_item_type: Some(item_type),
+          items: list.reverse(items_reversed),
+        ),
+        constrain_type(
+          expected_type,
+          TConstructor("Array", [item_type]),
+          context,
+        ),
       ))
     }
   }
