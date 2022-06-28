@@ -1,7 +1,7 @@
 //// [Type Inference by Example](https://ahnfelt.medium.com/type-inference-by-example-793d83f98382)
 //// but implemented in Gleam.
 //// 
-//// Part 6f: infer_type returns updated expressions
+//// Part 6
 
 import gleam/map.{Map}
 import gleam/list
@@ -123,7 +123,7 @@ pub fn main() {
 pub fn infer(
   environment: Environment,
   expression: Expression,
-) -> Result(Type, TypeCheckError) {
+) -> Result(#(Expression, Type), TypeCheckError) {
   let context =
     Context(
       environment: environment,
@@ -133,9 +133,13 @@ pub fn infer(
   let #(t, context) = fresh_type_variable(context)
   case infer_type(expression, t, context) {
     Error(scoping_error) -> Error(TypeCheckScopingError(scoping_error))
-    Ok(#(_expression, context)) ->
+    Ok(#(expression, context)) ->
       case solve_constraints(context) {
-        Ok(context) -> Ok(substitute(t, context.substitution))
+        Ok(context) ->
+          Ok(#(
+            substitute_expression(expression, context.substitution),
+            substitute(t, context.substitution),
+          ))
         Error(unify_error) -> Error(TypeCheckUnifyError(unify_error))
       }
   }
@@ -438,10 +442,68 @@ pub fn occurs_in(index: Int, t: Type, substitution: Substitution) -> Bool {
   }
 }
 
-// pub fn substitute_expression(expression: Expression
-
 /// A function to traverse an expression and reprace all maybe_types
 /// with concrete types at the end of typechecking (where possible)
+pub fn substitute_expression(
+  expression: Expression,
+  substitution: Substitution,
+) -> Expression {
+  case expression {
+    EFunction(
+      arguments: arguments,
+      maybe_return_type: maybe_return_type,
+      body: body,
+    ) -> {
+      let return_type =
+        option.map(maybe_return_type, substitute(_, substitution))
+      let arguments =
+        list.map(
+          arguments,
+          fn(argument) {
+            FunctionArgument(
+              ..argument,
+              maybe_argument_type: option.map(
+                argument.maybe_argument_type,
+                substitute(_, substitution),
+              ),
+            )
+          },
+        )
+      let body = substitute_expression(body, substitution)
+      EFunction(
+        arguments: arguments,
+        maybe_return_type: return_type,
+        body: body,
+      )
+    }
+    EApply(function: function, arguments: arguments) -> {
+      let function = substitute_expression(function, substitution)
+      let arguments =
+        list.map(arguments, substitute_expression(_, substitution))
+      EApply(function: function, arguments: arguments)
+    }
+    EVariable(_) -> expression
+    ELet(
+      name: name,
+      maybe_value_type: maybe_value_type,
+      value: value,
+      body: body,
+    ) -> {
+      let value_type = option.map(maybe_value_type, substitute(_, substitution))
+      let value = substitute_expression(value, substitution)
+      let body = substitute_expression(body, substitution)
+      ELet(name: name, maybe_value_type: value_type, value: value, body: body)
+    }
+    EInt(_) -> expression
+    EString(_) -> expression
+    EArray(maybe_item_type: maybe_item_type, items: items) -> {
+      let item_type = option.map(maybe_item_type, substitute(_, substitution))
+      let items = list.map(items, substitute_expression(_, substitution))
+      EArray(maybe_item_type: item_type, items: items)
+    }
+  }
+}
+
 /// A function to recursively replace all type variables inside a type
 /// at the end of type checking with concrete types (where possible).
 pub fn substitute(t: Type, substitution: Substitution) -> Type {
