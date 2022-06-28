@@ -19,7 +19,7 @@ pub type Expression {
   /// A function is defined by a list of argument names and the expression
   /// it evaluates to (function body).
   EFunction(
-    arguments: List(#(String, Option(Type))),
+    arguments: List(FunctionArgument),
     maybe_return_type: Option(Type),
     body: Expression,
   )
@@ -45,6 +45,10 @@ pub type Expression {
   EString(value: String)
   /// Literal array expression
   EArray(maybe_item_type: Option(Type), items: List(Expression))
+}
+
+pub type FunctionArgument {
+  FunctionArgument(name: String, maybe_argument_type: Option(Type))
 }
 
 /// The Type type represents the types of our small lanuguage.
@@ -156,8 +160,12 @@ pub fn infer_type(
           #([], [], context),
           fn(acc, arg) {
             let #(arguments_acc, arg_types_acc, context) = acc
-            let #(arg_name, arg_value_type) = arg
-            let #(t, context) = type_or_fresh_variable(arg_value_type, context)
+            let FunctionArgument(
+              name: arg_name,
+              maybe_argument_type: maybe_argument_type,
+            ) = arg
+            let #(t, context) =
+              type_or_fresh_variable(maybe_argument_type, context)
             let context =
               Context(
                 ..context,

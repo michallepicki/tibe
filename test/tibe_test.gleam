@@ -1,8 +1,8 @@
 import gleeunit
 import gleeunit/should
 import tibe.{
-  EApply, EArray, EFunction, EInt, ELet, EString, EVariable, NotInScope, TConstructor,
-  TypeCheckScopingError, TypeCheckUnifyError, TypeMismatch,
+  EApply, EArray, EFunction, EInt, ELet, EString, EVariable, FunctionArgument, NotInScope,
+  TConstructor, TypeCheckScopingError, TypeCheckUnifyError, TypeMismatch,
 }
 import gleam/list
 import gleam/map
@@ -24,7 +24,10 @@ pub fn function_test() {
     tibe.infer(
       initial_environment(),
       EFunction(
-        arguments: [#("x", None), #("y", None)],
+        arguments: [
+          FunctionArgument(name: "x", maybe_argument_type: None),
+          FunctionArgument(name: "y", maybe_argument_type: None),
+        ],
         maybe_return_type: None,
         body: EApply(
           function: EVariable(name: "+"),
@@ -58,8 +61,14 @@ pub fn function_annotated_test() {
       initial_environment(),
       EFunction(
         arguments: [
-          #("x", Some(TConstructor("Int", []))),
-          #("y", Some(TConstructor("Int", []))),
+          FunctionArgument(
+            name: "x",
+            maybe_argument_type: Some(TConstructor("Int", [])),
+          ),
+          FunctionArgument(
+            name: "y",
+            maybe_argument_type: Some(TConstructor("Int", [])),
+          ),
         ],
         maybe_return_type: Some(TConstructor("Int", [])),
         body: EApply(
