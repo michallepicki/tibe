@@ -156,6 +156,60 @@ pub fn let_annotated_test() {
   should.equal(tibe.infer(initial_environment(), e), Ok(#(e, t)))
 }
 
+pub fn let_apply_test() {
+  should.equal(
+    tibe.infer(
+      initial_environment(),
+      ELet(
+        name: "singleton",
+        maybe_value_type: None,
+        value: EFunction(
+          arguments: [FunctionArgument(name: "x", maybe_argument_type: None)],
+          maybe_return_type: None,
+          body: EArray(maybe_item_type: None, items: [EVariable(name: "x")]),
+        ),
+        body: EApply(
+          function: EVariable("singleton"),
+          arguments: [EInt(value: 42)],
+        ),
+      ),
+    ),
+    Ok(#(
+      ELet(
+        "singleton",
+        Some(TConstructor(
+          "Function1",
+          [
+            TConstructor("Int", []),
+            TConstructor("Array", [TConstructor("Int", [])]),
+          ],
+        )),
+        EFunction(
+          arguments: [
+            FunctionArgument(
+              name: "x",
+              maybe_argument_type: Some(TConstructor("Int", [])),
+            ),
+          ],
+          maybe_return_type: Some(TConstructor(
+            "Array",
+            [TConstructor("Int", [])],
+          )),
+          body: EArray(
+            maybe_item_type: Some(TConstructor("Int", [])),
+            items: [EVariable(name: "x")],
+          ),
+        ),
+        EApply(
+          function: EVariable(name: "singleton"),
+          arguments: [EInt(value: 42)],
+        ),
+      ),
+      TConstructor("Array", [TConstructor("Int", [])]),
+    )),
+  )
+}
+
 pub fn array_test() {
   should.equal(
     tibe.infer(
