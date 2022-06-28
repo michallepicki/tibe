@@ -135,7 +135,7 @@ pub fn infer(
     Error(scoping_error) -> Error(TypeCheckScopingError(scoping_error))
     Ok(#(_expression, context)) ->
       case solve_constraints(context) {
-        Ok(context) -> Ok(substitute(context.substitution, t))
+        Ok(context) -> Ok(substitute(t, context.substitution))
         Error(unify_error) -> Error(TypeCheckUnifyError(unify_error))
       }
   }
@@ -346,7 +346,7 @@ pub fn solve_constraints(context: Context) -> Result(Context, UnifyError) {
         substitution_result
         |> result.then(fn(substitution) {
           assert CEquality(t1, t2) = constraint
-          unify(substitution, t1, t2)
+          unify(t1, t2, substitution)
         })
       },
     )
@@ -357,9 +357,9 @@ pub fn solve_constraints(context: Context) -> Result(Context, UnifyError) {
 /// returns an error if they cannot, and returns an updated Substitution
 /// mapping.
 pub fn unify(
-  substitution: Substitution,
   t1: Type,
   t2: Type,
+  substitution: Substitution,
 ) -> Result(Substitution, UnifyError) {
   case t1, t2 {
     TConstructor(name: name1, type_parameters: generics1), TConstructor(
@@ -376,27 +376,27 @@ pub fn unify(
               unify_result
               |> result.then(fn(substitution) {
                 let #(t1, t2) = t
-                unify(substitution, t1, t2)
+                unify(t1, t2, substitution)
               })
             },
           )
       }
     TVariable(index: i), TVariable(index: j) if i == j -> Ok(substitution)
     t1, t2 ->
-      case follow(substitution, t1) {
-        Ok(t) -> unify(substitution, t, t2)
+      case follow(t1, substitution) {
+        Ok(t) -> unify(t, t2, substitution)
         Error(Nil) ->
-          case follow(substitution, t2) {
-            Ok(t) -> unify(substitution, t1, t)
+          case follow(t2, substitution) {
+            Ok(t) -> unify(t1, t, substitution)
             Error(Nil) ->
               case t1, t2 {
                 TVariable(index: i), _ ->
-                  case occurs_in(substitution, i, t2) {
+                  case occurs_in(i, t2, substitution) {
                     False -> Ok(map.insert(substitution, i, t2))
                     True -> Error(OccursError(i, t2))
                   }
                 _, TVariable(index: i) ->
-                  case occurs_in(substitution, i, t1) {
+                  case occurs_in(i, t1, substitution) {
                     False -> Ok(map.insert(substitution, i, t1))
                     True -> Error(OccursError(i, t1))
                   }
@@ -409,7 +409,7 @@ pub fn unify(
 
 /// A helper function used to get the type some type variable (to_follow)
 /// has been already unified with.
-pub fn follow(substitution: Substitution, to_follow: Type) -> Result(Type, Nil) {
+pub fn follow(to_follow: Type, substitution: Substitution) -> Result(Type, Nil) {
   case to_follow {
     TVariable(index: i) -> {
       assert Ok(t) = map.get(substitution, i)
@@ -423,34 +423,38 @@ pub fn follow(substitution: Substitution, to_follow: Type) -> Result(Type, Nil) 
 }
 
 /// A function to help with checking that the types are not recursive.
-pub fn occurs_in(substitution: Substitution, index: Int, t: Type) -> Bool {
+pub fn occurs_in(index: Int, t: Type, substitution: Substitution) -> Bool {
   case t {
     TVariable(index: i) ->
-      case follow(substitution, t) {
-        Ok(t) -> occurs_in(substitution, index, t)
+      case follow(t, substitution) {
+        Ok(t) -> occurs_in(index, t, substitution)
         _ -> i == index
       }
     TConstructor(name: _, type_parameters: generics) ->
-      case list.find(generics, occurs_in(substitution, index, _)) {
+      case list.find(generics, occurs_in(index, _, substitution)) {
         Ok(_) -> True
         Error(Nil) -> False
       }
   }
 }
 
+// pub fn substitute_expression(expression: Expression
+
+/// A function to traverse an expression and reprace all maybe_types
+/// with concrete types at the end of typechecking (where possible)
 /// A function to recursively replace all type variables inside a type
 /// at the end of type checking with concrete types (where possible).
-pub fn substitute(substitution: Substitution, t: Type) -> Type {
+pub fn substitute(t: Type, substitution: Substitution) -> Type {
   case t {
     TVariable(_) ->
-      case follow(substitution, t) {
-        Ok(t) -> substitute(substitution, t)
+      case follow(t, substitution) {
+        Ok(t) -> substitute(t, substitution)
         _ -> t
       }
     TConstructor(name: name, type_parameters: generics) ->
       TConstructor(
         name: name,
-        type_parameters: list.map(generics, substitute(substitution, _)),
+        type_parameters: list.map(generics, substitute(_, substitution)),
       )
   }
 }
