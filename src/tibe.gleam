@@ -15,31 +15,31 @@ import gleam/result
 /// An Expression is the input of our typechecker program.
 /// In `infer_type` it is processed to Types, Substutions, Environment mappings,
 /// and Constraints.
-pub type Expression {
+pub type Expression(t) {
   /// A function is defined by a list of argument names and the expression
   /// it evaluates to (function body).
-  /// A function can optionally have its return type (`maybe_return_type`)
-  /// argument types (`maybe_argument_type` inside each `arguments` element)
+  /// A function can optionally have its return type (`return_type`)
+  /// argument types (`argument_type` inside each `arguments` element)
   /// annotated before type checking. These fields also hold inferred types
   /// after type checking.
   EFunction(
-    arguments: List(FunctionArgument),
-    maybe_return_type: Option(Type),
-    body: Expression,
+    arguments: List(FunctionArgument(t)),
+    return_type: t,
+    body: Expression(t),
   )
   /// An application is a function call. It is defined by a function expression
   /// which will be called, and the argument expressions being passed
   /// to this function.
-  EApply(function: Expression, arguments: List(Expression))
+  EApply(function: Expression(t), arguments: List(Expression(t)))
   /// A let expression allows to bind some value to a name, so that it can be
   /// accessed in the current scope (inside of let's body).
-  /// It can have its type optionally annotated (in `maybe_value_type`).
+  /// It can have its type optionally annotated (in `value_type`).
   /// Inferred type gets also set there after inference.
   ELet(
     name: String,
-    maybe_value_type: Option(Type),
-    value: Expression,
-    body: Expression,
+    value_type: t,
+    value: Expression(t),
+    body: Expression(t),
   )
   /// An expression variable is a name that is bound to some value.
   /// This can be a function argument, a let binding, or some predefined value
@@ -50,12 +50,12 @@ pub type Expression {
   /// Literal string expression
   EString(value: String)
   /// Literal array expression. Can have its item types optionally annotated
-  /// (in `maybe_item_type`). This is also where inferred item type gets set.
-  EArray(maybe_item_type: Option(Type), items: List(Expression))
+  /// (in `item_type`). This is also where inferred item type gets set.
+  EArray(item_type: t, items: List(Expression(t)))
 }
 
-pub type FunctionArgument {
-  FunctionArgument(name: String, maybe_argument_type: Option(Type))
+pub type FunctionArgument(t) {
+  FunctionArgument(name: String, argument_type: t)
 }
 
 /// The Type type represents the types of our small lanuguage.
@@ -77,6 +77,8 @@ pub type Type {
   /// to an ordinary type.
   TVariable(index: Int)
 }
+
+pub type TypeAnnotation = Option(Type)
 
 /// The context holds all data useful for type checking collected along the way.
 pub type Context {
@@ -132,8 +134,8 @@ pub fn main() {
 
 pub fn infer(
   environment: Environment,
-  expression: Expression,
-) -> Result(#(Expression, Type), TypeCheckError) {
+  expression: Expression(TypeAnnotation),
+) -> Result(#(Expression(Type), Type), TypeCheckError) {
   let context =
     Context(
       environment: environment,
@@ -161,14 +163,14 @@ pub fn infer(
 /// introducing new expression variables and checking that referenced expression
 /// variables exist along the way.
 pub fn infer_type(
-  expression: Expression,
+  expression: Expression(TypeAnnotation),
   expected_type: Type,
   context: Context,
-) -> Result(#(Expression, Context), ScopingError) {
+) -> Result(#(Expression(Type), Context), ScopingError) {
   case expression {
-    EFunction(arguments: args, maybe_return_type: maybe_return_type, body: body) -> {
+    EFunction(arguments: args, return_type: return_type, body: body) -> {
       let #(return_type, context) =
-        type_or_fresh_variable(maybe_return_type, context)
+        type_or_fresh_variable(return_type, context)
       let #(arguments_reversed, arg_types_reversed, context) =
         list.fold(
           args,
@@ -177,10 +179,10 @@ pub fn infer_type(
             let #(arguments_acc, arg_types_acc, context) = acc
             let FunctionArgument(
               name: arg_name,
-              maybe_argument_type: maybe_argument_type,
+              argument_type: argument_type,
             ) = arg
             let #(t, context) =
-              type_or_fresh_variable(maybe_argument_type, context)
+              type_or_fresh_variable(argument_type, context)
             let context =
               Context(
                 ..context,
@@ -188,7 +190,7 @@ pub fn infer_type(
               )
             #(
               [
-                FunctionArgument(name: arg_name, maybe_argument_type: Some(t)),
+                FunctionArgument(name: arg_name, argument_type: t),
                 ..arguments_acc
               ],
               [t, ..arg_types_acc],
@@ -208,7 +210,7 @@ pub fn infer_type(
       Ok(#(
         EFunction(
           arguments: list.reverse(arguments_reversed),
-          maybe_return_type: Some(return_type),
+          return_type: return_type,
           body: body,
         ),
         context,
@@ -255,12 +257,12 @@ pub fn infer_type(
     }
     ELet(
       name: name,
-      maybe_value_type: maybe_value_type,
+      value_type: value_type,
       value: value,
       body: body,
     ) -> {
       let #(value_type, context) =
-        type_or_fresh_variable(maybe_value_type, context)
+        type_or_fresh_variable(value_type, context)
       try #(value, context) = infer_type(value, value_type, context)
       let context =
         Context(
@@ -271,7 +273,7 @@ pub fn infer_type(
       Ok(#(
         ELet(
           name: name,
-          maybe_value_type: Some(value_type),
+          value_type: value_type,
           value: value,
           body: body,
         ),
@@ -280,22 +282,22 @@ pub fn infer_type(
     }
     EVariable(name: x) ->
       case map.get(context.environment, x) {
-        Ok(t) -> Ok(#(expression, constrain_type(expected_type, t, context)))
+        Ok(t) -> Ok(#(EVariable(name: x), constrain_type(expected_type, t, context)))
         Error(_) -> Error(NotInScope(x))
       }
-    EInt(_) ->
+    EInt(value: v) ->
       Ok(#(
-        expression,
+        EInt(value: v),
         constrain_type(expected_type, TConstructor("Int", []), context),
       ))
-    EString(_) ->
+    EString(value: v) ->
       Ok(#(
-        expression,
+        EString(value: v),
         constrain_type(expected_type, TConstructor("String", []), context),
       ))
-    EArray(maybe_item_type: maybe_item_type, items: items) -> {
+    EArray(item_type: item_type, items: items) -> {
       let #(item_type, context) =
-        type_or_fresh_variable(maybe_item_type, context)
+        type_or_fresh_variable(item_type, context)
       try #(items_reversed, context) =
         list.try_fold(
           items,
@@ -308,7 +310,7 @@ pub fn infer_type(
         )
       Ok(#(
         EArray(
-          maybe_item_type: Some(item_type),
+          item_type: item_type,
           items: list.reverse(items_reversed),
         ),
         constrain_type(
@@ -455,34 +457,30 @@ pub fn occurs_in(index: Int, t: Type, substitution: Substitution) -> Bool {
 /// A function to traverse an expression and reprace all maybe_types
 /// with concrete types at the end of typechecking (where possible)
 pub fn substitute_expression(
-  expression: Expression,
+  expression: Expression(Type),
   substitution: Substitution,
-) -> Expression {
+) -> Expression(Type) {
   case expression {
     EFunction(
       arguments: arguments,
-      maybe_return_type: maybe_return_type,
+      return_type: return_type,
       body: body,
     ) -> {
-      let return_type =
-        option.map(maybe_return_type, substitute(_, substitution))
+      let return_type = substitute(return_type, substitution)
       let arguments =
         list.map(
           arguments,
           fn(argument) {
             FunctionArgument(
               ..argument,
-              maybe_argument_type: option.map(
-                argument.maybe_argument_type,
-                substitute(_, substitution),
-              ),
+              argument_type: substitute(argument.argument_type, substitution),
             )
           },
         )
       let body = substitute_expression(body, substitution)
       EFunction(
         arguments: arguments,
-        maybe_return_type: return_type,
+        return_type: return_type,
         body: body,
       )
     }
@@ -495,21 +493,21 @@ pub fn substitute_expression(
     EVariable(_) -> expression
     ELet(
       name: name,
-      maybe_value_type: maybe_value_type,
+      value_type: value_type,
       value: value,
       body: body,
     ) -> {
-      let value_type = option.map(maybe_value_type, substitute(_, substitution))
+      let value_type = substitute(value_type, substitution)
       let value = substitute_expression(value, substitution)
       let body = substitute_expression(body, substitution)
-      ELet(name: name, maybe_value_type: value_type, value: value, body: body)
+      ELet(name: name, value_type: value_type, value: value, body: body)
     }
     EInt(_) -> expression
     EString(_) -> expression
-    EArray(maybe_item_type: maybe_item_type, items: items) -> {
-      let item_type = option.map(maybe_item_type, substitute(_, substitution))
+    EArray(item_type: item_type, items: items) -> {
+      let item_type = substitute(item_type, substitution)
       let items = list.map(items, substitute_expression(_, substitution))
-      EArray(maybe_item_type: item_type, items: items)
+      EArray(item_type: item_type, items: items)
     }
   }
 }

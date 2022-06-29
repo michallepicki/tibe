@@ -25,10 +25,10 @@ pub fn function_test() {
       initial_environment(),
       EFunction(
         arguments: [
-          FunctionArgument(name: "x", maybe_argument_type: None),
-          FunctionArgument(name: "y", maybe_argument_type: None),
+          FunctionArgument(name: "x", argument_type: None),
+          FunctionArgument(name: "y", argument_type: None),
         ],
-        maybe_return_type: None,
+        return_type: None,
         body: EApply(
           function: EVariable(name: "+"),
           arguments: [EVariable(name: "x"), EVariable(name: "y")],
@@ -38,16 +38,10 @@ pub fn function_test() {
     Ok(#(
       EFunction(
         arguments: [
-          FunctionArgument(
-            name: "x",
-            maybe_argument_type: Some(TConstructor("Int", [])),
-          ),
-          FunctionArgument(
-            name: "y",
-            maybe_argument_type: Some(TConstructor("Int", [])),
-          ),
+          FunctionArgument(name: "x", argument_type: TConstructor("Int", [])),
+          FunctionArgument(name: "y", argument_type: TConstructor("Int", [])),
         ],
-        maybe_return_type: Some(TConstructor("Int", [])),
+        return_type: TConstructor("Int", []),
         body: EApply(
           function: EVariable(name: "+"),
           arguments: [EVariable(name: "x"), EVariable(name: "y")],
@@ -66,24 +60,6 @@ pub fn function_test() {
 }
 
 pub fn function_annotated_test() {
-  let e =
-    EFunction(
-      arguments: [
-        FunctionArgument(
-          name: "x",
-          maybe_argument_type: Some(TConstructor("Int", [])),
-        ),
-        FunctionArgument(
-          name: "y",
-          maybe_argument_type: Some(TConstructor("Int", [])),
-        ),
-      ],
-      maybe_return_type: Some(TConstructor("Int", [])),
-      body: EApply(
-        function: EVariable(name: "+"),
-        arguments: [EVariable(name: "x"), EVariable(name: "y")],
-      ),
-    )
   let t =
     TConstructor(
       "Function2",
@@ -93,7 +69,42 @@ pub fn function_annotated_test() {
         TConstructor("Int", []),
       ],
     )
-  should.equal(tibe.infer(initial_environment(), e), Ok(#(e, t)))
+  should.equal(
+    tibe.infer(
+      initial_environment(),
+      EFunction(
+        arguments: [
+          FunctionArgument(
+            name: "x",
+            argument_type: Some(TConstructor("Int", [])),
+          ),
+          FunctionArgument(
+            name: "y",
+            argument_type: Some(TConstructor("Int", [])),
+          ),
+        ],
+        return_type: Some(TConstructor("Int", [])),
+        body: EApply(
+          function: EVariable(name: "+"),
+          arguments: [EVariable(name: "x"), EVariable(name: "y")],
+        ),
+      ),
+    ),
+    Ok(#(
+      EFunction(
+        arguments: [
+          FunctionArgument(name: "x", argument_type: TConstructor("Int", [])),
+          FunctionArgument(name: "y", argument_type: TConstructor("Int", [])),
+        ],
+        return_type: TConstructor("Int", []),
+        body: EApply(
+          function: EVariable(name: "+"),
+          arguments: [EVariable(name: "x"), EVariable(name: "y")],
+        ),
+      ),
+      t,
+    )),
+  )
 }
 
 pub fn function_type_mismatch_test() {
@@ -118,7 +129,7 @@ pub fn let_test() {
       initial_environment(),
       ELet(
         name: "x",
-        maybe_value_type: None,
+        value_type: None,
         value: EInt(value: 10),
         body: EApply(
           function: EVariable(name: "+"),
@@ -129,7 +140,7 @@ pub fn let_test() {
     Ok(#(
       ELet(
         name: "x",
-        maybe_value_type: Some(TConstructor("Int", [])),
+        value_type: TConstructor("Int", []),
         value: EInt(value: 10),
         body: EApply(
           function: EVariable(name: "+"),
@@ -143,17 +154,32 @@ pub fn let_test() {
 
 pub fn let_annotated_test() {
   let t = TConstructor("Int", [])
-  let e =
-    ELet(
-      name: "x",
-      maybe_value_type: Some(t),
-      value: EInt(value: 10),
-      body: EApply(
-        function: EVariable(name: "+"),
-        arguments: [EVariable(name: "x"), EVariable(name: "x")],
+  should.equal(
+    tibe.infer(
+      initial_environment(),
+      ELet(
+        name: "x",
+        value_type: Some(t),
+        value: EInt(value: 10),
+        body: EApply(
+          function: EVariable(name: "+"),
+          arguments: [EVariable(name: "x"), EVariable(name: "x")],
+        ),
       ),
-    )
-  should.equal(tibe.infer(initial_environment(), e), Ok(#(e, t)))
+    ),
+    Ok(#(
+      ELet(
+        name: "x",
+        value_type: t,
+        value: EInt(value: 10),
+        body: EApply(
+          function: EVariable(name: "+"),
+          arguments: [EVariable(name: "x"), EVariable(name: "x")],
+        ),
+      ),
+      t,
+    )),
+  )
 }
 
 pub fn let_apply_test() {
@@ -162,11 +188,11 @@ pub fn let_apply_test() {
       initial_environment(),
       ELet(
         name: "singleton",
-        maybe_value_type: None,
+        value_type: None,
         value: EFunction(
-          arguments: [FunctionArgument(name: "x", maybe_argument_type: None)],
-          maybe_return_type: None,
-          body: EArray(maybe_item_type: None, items: [EVariable(name: "x")]),
+          arguments: [FunctionArgument(name: "x", argument_type: None)],
+          return_type: None,
+          body: EArray(item_type: None, items: [EVariable(name: "x")]),
         ),
         body: EApply(
           function: EVariable("singleton"),
@@ -177,26 +203,20 @@ pub fn let_apply_test() {
     Ok(#(
       ELet(
         "singleton",
-        Some(TConstructor(
+        TConstructor(
           "Function1",
           [
             TConstructor("Int", []),
             TConstructor("Array", [TConstructor("Int", [])]),
           ],
-        )),
+        ),
         EFunction(
           arguments: [
-            FunctionArgument(
-              name: "x",
-              maybe_argument_type: Some(TConstructor("Int", [])),
-            ),
+            FunctionArgument(name: "x", argument_type: TConstructor("Int", [])),
           ],
-          maybe_return_type: Some(TConstructor(
-            "Array",
-            [TConstructor("Int", [])],
-          )),
+          return_type: TConstructor("Array", [TConstructor("Int", [])]),
           body: EArray(
-            maybe_item_type: Some(TConstructor("Int", [])),
+            item_type: TConstructor("Int", []),
             items: [EVariable(name: "x")],
           ),
         ),
@@ -214,11 +234,11 @@ pub fn array_test() {
   should.equal(
     tibe.infer(
       initial_environment(),
-      EArray(maybe_item_type: None, items: [EInt(value: 10), EInt(value: 20)]),
+      EArray(item_type: None, items: [EInt(value: 10), EInt(value: 20)]),
     ),
     Ok(#(
       EArray(
-        maybe_item_type: Some(TConstructor("Int", [])),
+        item_type: TConstructor("Int", []),
         items: [EInt(value: 10), EInt(value: 20)],
       ),
       TConstructor("Array", [TConstructor("Int", [])]),
@@ -228,11 +248,15 @@ pub fn array_test() {
 
 pub fn array_annotated_test() {
   let t = TConstructor("Int", [])
-  let e =
-    EArray(maybe_item_type: Some(t), items: [EInt(value: 10), EInt(value: 20)])
   should.equal(
-    tibe.infer(initial_environment(), e),
-    Ok(#(e, TConstructor("Array", [t]))),
+    tibe.infer(
+      initial_environment(),
+      EArray(item_type: Some(t), items: [EInt(value: 10), EInt(value: 20)]),
+    ),
+    Ok(#(
+      EArray(item_type: t, items: [EInt(value: 10), EInt(value: 20)]),
+      TConstructor("Array", [t]),
+    )),
   )
 }
 
@@ -240,10 +264,7 @@ pub fn array_type_mismatch_test() {
   should.equal(
     tibe.infer(
       initial_environment(),
-      EArray(
-        maybe_item_type: None,
-        items: [EInt(value: 10), EString(value: "20")],
-      ),
+      EArray(item_type: None, items: [EInt(value: 10), EString(value: "20")]),
     ),
     Error(TypeCheckUnifyError(TypeMismatch(
       TConstructor(name: "Int", type_parameters: []),
