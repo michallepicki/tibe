@@ -6,7 +6,6 @@ Browse the repository at individual commits to follow along starting from part 5
 ## Quick start
 
 ```sh
-gleam run   # Run the project
 gleam test  # Run the tests
 gleam shell # Run an Erlang shell
 ```
