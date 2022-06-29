@@ -35,12 +35,7 @@ pub type Expression(t) {
   /// accessed in the current scope (inside of let's body).
   /// It can have its type optionally annotated (in `value_type`).
   /// Inferred type gets also set there after inference.
-  ELet(
-    name: String,
-    value_type: t,
-    value: Expression(t),
-    body: Expression(t),
-  )
+  ELet(name: String, value_type: t, value: Expression(t), body: Expression(t))
   /// An expression variable is a name that is bound to some value.
   /// This can be a function argument, a let binding, or some predefined value
   /// like the "+" abstraction.
@@ -78,7 +73,8 @@ pub type Type {
   TVariable(index: Int)
 }
 
-pub type TypeAnnotation = Option(Type)
+pub type TypeAnnotation =
+  Option(Type)
 
 /// The context holds all data useful for type checking collected along the way.
 pub type Context {
@@ -169,20 +165,16 @@ pub fn infer_type(
 ) -> Result(#(Expression(Type), Context), ScopingError) {
   case expression {
     EFunction(arguments: args, return_type: return_type, body: body) -> {
-      let #(return_type, context) =
-        type_or_fresh_variable(return_type, context)
+      let #(return_type, context) = type_or_fresh_variable(return_type, context)
       let #(arguments_reversed, arg_types_reversed, context) =
         list.fold(
           args,
           #([], [], context),
           fn(acc, arg) {
             let #(arguments_acc, arg_types_acc, context) = acc
-            let FunctionArgument(
-              name: arg_name,
-              argument_type: argument_type,
-            ) = arg
-            let #(t, context) =
-              type_or_fresh_variable(argument_type, context)
+            let FunctionArgument(name: arg_name, argument_type: argument_type) =
+              arg
+            let #(t, context) = type_or_fresh_variable(argument_type, context)
             let context =
               Context(
                 ..context,
@@ -255,14 +247,8 @@ pub fn infer_type(
         context,
       ))
     }
-    ELet(
-      name: name,
-      value_type: value_type,
-      value: value,
-      body: body,
-    ) -> {
-      let #(value_type, context) =
-        type_or_fresh_variable(value_type, context)
+    ELet(name: name, value_type: value_type, value: value, body: body) -> {
+      let #(value_type, context) = type_or_fresh_variable(value_type, context)
       try #(value, context) = infer_type(value, value_type, context)
       let context =
         Context(
@@ -271,18 +257,14 @@ pub fn infer_type(
         )
       try #(body, context) = infer_type(body, expected_type, context)
       Ok(#(
-        ELet(
-          name: name,
-          value_type: value_type,
-          value: value,
-          body: body,
-        ),
+        ELet(name: name, value_type: value_type, value: value, body: body),
         context,
       ))
     }
     EVariable(name: x) ->
       case map.get(context.environment, x) {
-        Ok(t) -> Ok(#(EVariable(name: x), constrain_type(expected_type, t, context)))
+        Ok(t) ->
+          Ok(#(EVariable(name: x), constrain_type(expected_type, t, context)))
         Error(_) -> Error(NotInScope(x))
       }
     EInt(value: v) ->
@@ -296,8 +278,7 @@ pub fn infer_type(
         constrain_type(expected_type, TConstructor("String", []), context),
       ))
     EArray(item_type: item_type, items: items) -> {
-      let #(item_type, context) =
-        type_or_fresh_variable(item_type, context)
+      let #(item_type, context) = type_or_fresh_variable(item_type, context)
       try #(items_reversed, context) =
         list.try_fold(
           items,
@@ -309,10 +290,7 @@ pub fn infer_type(
           },
         )
       Ok(#(
-        EArray(
-          item_type: item_type,
-          items: list.reverse(items_reversed),
-        ),
+        EArray(item_type: item_type, items: list.reverse(items_reversed)),
         constrain_type(
           expected_type,
           TConstructor("Array", [item_type]),
@@ -461,11 +439,7 @@ pub fn substitute_expression(
   substitution: Substitution,
 ) -> Expression(Type) {
   case expression {
-    EFunction(
-      arguments: arguments,
-      return_type: return_type,
-      body: body,
-    ) -> {
+    EFunction(arguments: arguments, return_type: return_type, body: body) -> {
       let return_type = substitute(return_type, substitution)
       let arguments =
         list.map(
@@ -478,11 +452,7 @@ pub fn substitute_expression(
           },
         )
       let body = substitute_expression(body, substitution)
-      EFunction(
-        arguments: arguments,
-        return_type: return_type,
-        body: body,
-      )
+      EFunction(arguments: arguments, return_type: return_type, body: body)
     }
     EApply(function: function, arguments: arguments) -> {
       let function = substitute_expression(function, substitution)
@@ -491,12 +461,7 @@ pub fn substitute_expression(
       EApply(function: function, arguments: arguments)
     }
     EVariable(_) -> expression
-    ELet(
-      name: name,
-      value_type: value_type,
-      value: value,
-      body: body,
-    ) -> {
+    ELet(name: name, value_type: value_type, value: value, body: body) -> {
       let value_type = substitute(value_type, substitution)
       let value = substitute_expression(value, substitution)
       let body = substitute_expression(body, substitution)
