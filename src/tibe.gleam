@@ -18,6 +18,10 @@ import gleam/result
 pub type Expression {
   /// A function is defined by a list of argument names and the expression
   /// it evaluates to (function body).
+  /// A function can optionally have its return type (`maybe_return_type`)
+  /// argument types (`maybe_argument_type` inside each `arguments` element)
+  /// annotated before type checking. These fields also hold inferred types
+  /// after type checking.
   EFunction(
     arguments: List(FunctionArgument),
     maybe_return_type: Option(Type),
@@ -29,6 +33,8 @@ pub type Expression {
   EApply(function: Expression, arguments: List(Expression))
   /// A let expression allows to bind some value to a name, so that it can be
   /// accessed in the current scope (inside of let's body).
+  /// It can have its type optionally annotated (in `maybe_value_type`).
+  /// Inferred type gets also set there after inference.
   ELet(
     name: String,
     maybe_value_type: Option(Type),
@@ -43,7 +49,8 @@ pub type Expression {
   EInt(value: Int)
   /// Literal string expression
   EString(value: String)
-  /// Literal array expression
+  /// Literal array expression. Can have its item types optionally annotated
+  /// (in `maybe_item_type`). This is also where inferred item type gets set.
   EArray(maybe_item_type: Option(Type), items: List(Expression))
 }
 
@@ -58,15 +65,16 @@ pub type FunctionArgument {
 /// to substitution. At the end of our typechecker program, Expressions
 /// have their maybe_type fields filled in.
 pub type Type {
-  /// A type constructor names a type and applies it to a list
-  /// of type parameters. For example, it can be a simple type like Int
-  /// with no type parameters, or a Function1 type with 2 type parameters:
-  /// its argument type and return type.
+  /// A TConstructor is a concrete / ordinary / monomorphic type.
+  /// This is what we want our types to look like after type inference.
+  /// An ordinary type is defined by a type name and a list of type parameters.
+  /// For example, it can be a simple type like Int with no type parameters,
+  /// or a Function1 type with 2 type parameters: its argument type
+  /// and return type.
   TConstructor(name: String, type_parameters: List(Type))
   /// A type variable is an internal typechecker representation
-  /// of a non concrete type. It either was not yet inferred or substituted
-  /// to a concrete type, or (for polymorphic functions) it represents
-  /// a type parameter.
+  /// for a non concrete type. It was not yet inferred or substituted
+  /// to an ordinary type.
   TVariable(index: Int)
 }
 
@@ -96,9 +104,11 @@ pub type TypeConstraints =
   List(Constraint)
 
 /// The Substitution map holds the mapping from type variables indexes,
-/// to their actual type values. Initially for each type variable
+/// to their concrete type values. Initially for each type variable
 /// it points to itself. As the type constraints get solved in unification,
 /// it points to more concrete types for them.
+/// At the end of type checking it's used to fill in the untyped expression
+/// with types information.
 pub type Substitution =
   Map(Int, Type)
 
@@ -339,7 +349,7 @@ pub fn constrain_type(t1: Type, t2: Type, context: Context) -> Context {
 }
 
 /// A function which "solves" (and gets rid of) type constraints
-/// using unification.
+/// using unification, or returns unification errors.
 pub fn solve_constraints(context: Context) -> Result(Context, UnifyError) {
   try substitution =
     context.type_constraints
