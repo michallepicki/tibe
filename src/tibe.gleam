@@ -66,7 +66,8 @@ pub type FunctionArgument(t) {
 /// It is used internally starting from the input (expected type)
 /// of `infer_type` throughout the constraint solving (unification)
 /// to substitution. At the end of our typechecker program, Expressions
-/// have their maybe_type fields filled in.
+/// have their type fields filled in (we go from Expression(Option(Type))
+/// to Expression(Type).
 pub type Type {
   /// A TConstructor is a concrete / ordinary / monomorphic type.
   /// This is what we want our types to look like after type inference.
