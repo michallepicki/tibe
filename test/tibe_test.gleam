@@ -2,7 +2,7 @@ import gleeunit
 import gleeunit/should
 import tibe.{
   EApply, EArray, EFunction, EInt, ELet, EString, EVariable, FunctionArgument, NotInScope,
-  TConstructor, TypeCheckScopingError, TypeCheckUnifyError, TypeMismatch,
+  TConstructor, TypeMismatch,
 }
 import gleam/list
 import gleam/map
@@ -15,7 +15,7 @@ pub fn main() {
 pub fn scope_error_test() {
   should.equal(
     tibe.infer(initial_environment(), EVariable(name: "x")),
-    Error(TypeCheckScopingError(NotInScope("x"))),
+    Error(NotInScope("x")),
   )
 }
 
@@ -116,10 +116,10 @@ pub fn function_type_mismatch_test() {
         arguments: [EInt(value: 10), EString(value: "some_string")],
       ),
     ),
-    Error(TypeCheckUnifyError(TypeMismatch(
+    Error(TypeMismatch(
       TConstructor(name: "Int", type_parameters: []),
       TConstructor(name: "String", type_parameters: []),
-    ))),
+    )),
   )
 }
 
@@ -266,10 +266,10 @@ pub fn array_type_mismatch_test() {
       initial_environment(),
       EArray(item_type: None, items: [EInt(value: 10), EString(value: "20")]),
     ),
-    Error(TypeCheckUnifyError(TypeMismatch(
+    Error(TypeMismatch(
       TConstructor(name: "Int", type_parameters: []),
       TConstructor(name: "String", type_parameters: []),
-    ))),
+    )),
   )
 }
 

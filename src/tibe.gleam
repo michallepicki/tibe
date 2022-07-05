@@ -1,14 +1,13 @@
 //// [Type Inference by Example](https://ahnfelt.medium.com/type-inference-by-example-793d83f98382)
 //// but implemented in Gleam.
 //// 
-//// Part 6
+//// Part 7a recursive functions
 
 import gleam/map.{Map}
 import gleam/list
 import gleam/string
 import gleam/int
 import gleam/option.{None, Option, Some}
-import gleam/result
 
 /// AST type representing our language.
 ///
@@ -16,6 +15,12 @@ import gleam/result
 /// In `infer_type` it is processed to Types, Substutions, Environment mappings,
 /// and Constraints.
 pub type Expression(t) {
+  /// A list of functions that may potentially call each other
+  /// and are in scope in `body`.
+  ERecursiveFunctions(
+    functions: List(RecursiveFunction(t)),
+    body: Expression(t),
+  )
   /// A function is defined by a list of argument names and the expression
   /// it evaluates to (function body).
   /// A function can optionally have its return type (`return_type`)
@@ -47,6 +52,10 @@ pub type Expression(t) {
   /// Literal array expression. Can have its item types optionally annotated
   /// (in `item_type`). This is also where inferred item type gets set.
   EArray(item_type: t, items: List(Expression(t)))
+}
+
+pub type RecursiveFunction(t) {
+  RecursiveFunction(name: String, function_type: t, lambda: Expression(t))
 }
 
 pub type FunctionArgument(t) {
@@ -110,18 +119,10 @@ pub type TypeConstraints =
 pub type Substitution =
   Map(Int, Type)
 
-pub type ScopingError {
-  NotInScope(name: String)
-}
-
-pub type UnifyError {
+pub type TypeCheckError {
   OccursError(index: Int, t: Type)
   TypeMismatch(t1: Type, t2: Type)
-}
-
-pub type TypeCheckError {
-  TypeCheckScopingError(ScopingError)
-  TypeCheckUnifyError(UnifyError)
+  NotInScope(name: String)
 }
 
 pub fn main() {
@@ -139,18 +140,12 @@ pub fn infer(
       substitution: map.new(),
     )
   let #(t, context) = fresh_type_variable(context)
-  case infer_type(expression, t, context) {
-    Error(scoping_error) -> Error(TypeCheckScopingError(scoping_error))
-    Ok(#(expression, context)) ->
-      case solve_constraints(context) {
-        Ok(context) ->
-          Ok(#(
-            substitute_expression(expression, context.substitution),
-            substitute(t, context.substitution),
-          ))
-        Error(unify_error) -> Error(TypeCheckUnifyError(unify_error))
-      }
-  }
+  try #(expression, context) = infer_type(expression, t, context)
+  try context = solve_constraints(context)
+  Ok(#(
+    substitute_expression(expression, context.substitution),
+    substitute(t, context.substitution),
+  ))
 }
 
 /// A function which takes an expression and its expected type
@@ -162,8 +157,55 @@ pub fn infer_type(
   expression: Expression(TypeAnnotation),
   expected_type: Type,
   context: Context,
-) -> Result(#(Expression(Type), Context), ScopingError) {
+) -> Result(#(Expression(Type), Context), TypeCheckError) {
   case expression {
+    ERecursiveFunctions(functions: functions, body: body) -> {
+      let #(recursive_environment, context) =
+        list.fold(
+          functions,
+          #(context.environment, context),
+          fn(acc, function) {
+            let #(recursive_environment, context) = acc
+            let #(type_variable, context) =
+              type_or_fresh_variable(function.function_type, context)
+            #(
+              map.insert(recursive_environment, function.name, type_variable),
+              context,
+            )
+          },
+        )
+      try #(functions, context) =
+        list.try_fold(
+          functions,
+          #([], context),
+          fn(acc, function) {
+            let #(functions, context) = acc
+            assert Ok(type_variable) =
+              map.get(recursive_environment, function.name)
+            try #(lambda, context) =
+              infer_type(
+                function.lambda,
+                type_variable,
+                Context(..context, environment: recursive_environment),
+              )
+            Ok(#(
+              [
+                RecursiveFunction(
+                  name: function.name,
+                  function_type: type_variable,
+                  lambda: lambda,
+                ),
+                ..functions
+              ],
+              context,
+            ))
+          },
+        )
+      try context = solve_constraints(context)
+      let context = Context(..context, environment: recursive_environment)
+      try #(body, context) = infer_type(body, expected_type, context)
+      Ok(#(ERecursiveFunctions(functions: functions, body: body), context))
+    }
     EFunction(arguments: args, return_type: return_type, body: body) -> {
       let #(return_type, context) = type_or_fresh_variable(return_type, context)
       let #(arguments_reversed, arg_types_reversed, context) =
@@ -330,18 +372,15 @@ pub fn constrain_type(t1: Type, t2: Type, context: Context) -> Context {
 
 /// A function which "solves" (and gets rid of) type constraints
 /// using unification, or returns unification errors.
-pub fn solve_constraints(context: Context) -> Result(Context, UnifyError) {
+pub fn solve_constraints(context: Context) -> Result(Context, TypeCheckError) {
   try substitution =
     context.type_constraints
     |> list.reverse()
-    |> list.fold(
-      Ok(context.substitution),
-      fn(substitution_result, constraint) {
-        substitution_result
-        |> result.then(fn(substitution) {
-          assert CEquality(t1, t2) = constraint
-          unify(t1, t2, substitution)
-        })
+    |> list.try_fold(
+      context.substitution,
+      fn(substitution, constraint) {
+        assert CEquality(t1, t2) = constraint
+        unify(t1, t2, substitution)
       },
     )
   Ok(Context(..context, type_constraints: [], substitution: substitution))
@@ -354,7 +393,7 @@ pub fn unify(
   t1: Type,
   t2: Type,
   substitution: Substitution,
-) -> Result(Substitution, UnifyError) {
+) -> Result(Substitution, TypeCheckError) {
   case t1, t2 {
     TConstructor(name: name1, type_parameters: generics1), TConstructor(
       name: name2,
@@ -364,14 +403,11 @@ pub fn unify(
         True -> Error(TypeMismatch(t1, t2))
         False ->
           list.zip(generics1, generics2)
-          |> list.fold(
-            Ok(substitution),
-            fn(unify_result, t) {
-              unify_result
-              |> result.then(fn(substitution) {
-                let #(t1, t2) = t
-                unify(t1, t2, substitution)
-              })
+          |> list.try_fold(
+            substitution,
+            fn(substitution, t) {
+              let #(t1, t2) = t
+              unify(t1, t2, substitution)
             },
           )
       }
@@ -432,13 +468,35 @@ pub fn occurs_in(index: Int, t: Type, substitution: Substitution) -> Bool {
   }
 }
 
-/// A function to traverse an expression and reprace all maybe_types
+/// A function to traverse an expression and reprace all type variables
 /// with concrete types at the end of typechecking (where possible)
 pub fn substitute_expression(
   expression: Expression(Type),
   substitution: Substitution,
 ) -> Expression(Type) {
   case expression {
+    ERecursiveFunctions(functions: functions, body: body) -> {
+      let functions =
+        list.map(
+          functions,
+          fn(function) {
+            let RecursiveFunction(
+              name: name,
+              function_type: function_type,
+              lambda: lambda,
+            ) = function
+            let function_type = substitute(function_type, substitution)
+            let lambda = substitute_expression(lambda, substitution)
+            RecursiveFunction(
+              name: name,
+              function_type: function_type,
+              lambda: lambda,
+            )
+          },
+        )
+      let body = substitute_expression(body, substitution)
+      ERecursiveFunctions(functions: functions, body: body)
+    }
     EFunction(arguments: arguments, return_type: return_type, body: body) -> {
       let return_type = substitute(return_type, substitution)
       let arguments =
