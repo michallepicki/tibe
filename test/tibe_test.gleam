@@ -278,7 +278,7 @@ pub fn recursive_functions_test() {
             function_type: None,
             lambda: EFunction(
               arguments: [FunctionArgument(name: "x", argument_type: None)],
-              return_type: None,
+              return_type: Some(int_type()),
               body: EApply(
                 function: EVariable(name: "odd"),
                 arguments: [
@@ -359,7 +359,7 @@ pub fn recursive_functions_test() {
             ),
           ),
         ],
-        body: EApply(EVariable("singleton"), [EInt(42)]),
+        body: EApply(EVariable("even"), [EInt(42)]),
       ),
       int_type(),
     )),
