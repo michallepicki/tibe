@@ -23,8 +23,7 @@ pub type Expression(t) {
   )
   /// A function is defined by a list of argument names and the expression
   /// it evaluates to (function body).
-  /// A function can optionally have its return type (`return_type`)
-  /// argument types (`argument_type` inside each `arguments` element)
+  /// A function can optionally have its return type or argument types
   /// annotated before type checking. These fields also hold inferred types
   /// after type checking.
   EFunction(
@@ -38,7 +37,7 @@ pub type Expression(t) {
   EApply(function: Expression(t), arguments: List(Expression(t)))
   /// A let expression allows to bind some value to a name, so that it can be
   /// accessed in the current scope (inside of let's body).
-  /// It can have its type optionally annotated (in `value_type`).
+  /// It can have its type optionally annotated.
   /// Inferred type gets also set there after inference.
   ELet(name: String, value_type: t, value: Expression(t), body: Expression(t))
   /// An expression variable is a name that is bound to some value.
