@@ -174,7 +174,7 @@ pub fn infer_type(
             )
           },
         )
-      try #(functions, context) =
+      try #(functions, recursive_functions_context) =
         list.try_fold(
           functions,
           #([], context),
@@ -201,10 +201,16 @@ pub fn infer_type(
             ))
           },
         )
-      try context = solve_constraints(context)
-      let context = Context(..context, environment: recursive_environment)
-      try #(body, context) = infer_type(body, expected_type, context)
-      Ok(#(ERecursiveFunctions(functions: functions, body: body), context))
+      try recursive_functions_context =
+        solve_constraints(recursive_functions_context)
+      try #(body, recursive_functions_context) =
+        infer_type(body, expected_type, recursive_functions_context)
+      let context =
+        Context(..recursive_functions_context, environment: context.environment)
+      Ok(#(
+        ERecursiveFunctions(functions: list.reverse(functions), body: body),
+        context,
+      ))
     }
     EFunction(arguments: args, return_type: return_type, body: body) -> {
       let #(return_type, context) = type_or_fresh_variable(return_type, context)

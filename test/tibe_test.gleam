@@ -1,8 +1,8 @@
 import gleeunit
 import gleeunit/should
 import tibe.{
-  EApply, EArray, EFunction, EInt, ELet, EString, EVariable, FunctionArgument, NotInScope,
-  TConstructor, TypeMismatch,
+  EApply, EArray, EFunction, EInt, ELet, ERecursiveFunctions, EString, EVariable,
+  FunctionArgument, NotInScope, RecursiveFunction, TConstructor, TypeMismatch,
 }
 import gleam/list
 import gleam/map
@@ -116,10 +116,7 @@ pub fn function_type_mismatch_test() {
         arguments: [EInt(value: 10), EString(value: "some_string")],
       ),
     ),
-    Error(TypeMismatch(
-      TConstructor(name: "Int", type_parameters: []),
-      TConstructor(name: "String", type_parameters: []),
-    )),
+    Error(TypeMismatch(int_type(), string_type())),
   )
 }
 
@@ -266,9 +263,105 @@ pub fn array_type_mismatch_test() {
       initial_environment(),
       EArray(item_type: None, items: [EInt(value: 10), EString(value: "20")]),
     ),
-    Error(TypeMismatch(
-      TConstructor(name: "Int", type_parameters: []),
-      TConstructor(name: "String", type_parameters: []),
+    Error(TypeMismatch(int_type(), string_type())),
+  )
+}
+
+pub fn recursive_functions_test() {
+  should.equal(
+    tibe.infer(
+      initial_environment(),
+      ERecursiveFunctions(
+        functions: [
+          RecursiveFunction(
+            name: "even",
+            function_type: None,
+            lambda: EFunction(
+              arguments: [FunctionArgument(name: "x", argument_type: None)],
+              return_type: None,
+              body: EApply(
+                function: EVariable(name: "odd"),
+                arguments: [
+                  EApply(
+                    function: EVariable(name: "-"),
+                    arguments: [EVariable(name: "x"), EInt(value: 1)],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          RecursiveFunction(
+            name: "odd",
+            function_type: None,
+            lambda: EFunction(
+              arguments: [FunctionArgument(name: "x", argument_type: None)],
+              return_type: None,
+              body: EApply(
+                function: EVariable(name: "even"),
+                arguments: [
+                  EApply(
+                    function: EVariable(name: "-"),
+                    arguments: [EVariable(name: "x"), EInt(value: 1)],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+        body: EApply(EVariable("even"), [EInt(42)]),
+      ),
+    ),
+    Ok(#(
+      ERecursiveFunctions(
+        functions: [
+          RecursiveFunction(
+            name: "even",
+            function_type: TConstructor(
+              name: "Function1",
+              type_parameters: [int_type(), int_type()],
+            ),
+            lambda: EFunction(
+              arguments: [
+                FunctionArgument(name: "x", argument_type: int_type()),
+              ],
+              return_type: int_type(),
+              body: EApply(
+                function: EVariable(name: "odd"),
+                arguments: [
+                  EApply(
+                    function: EVariable(name: "-"),
+                    arguments: [EVariable(name: "x"), EInt(value: 1)],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          RecursiveFunction(
+            name: "odd",
+            function_type: TConstructor(
+              name: "Function1",
+              type_parameters: [int_type(), int_type()],
+            ),
+            lambda: EFunction(
+              arguments: [
+                FunctionArgument(name: "x", argument_type: int_type()),
+              ],
+              return_type: int_type(),
+              body: EApply(
+                function: EVariable(name: "even"),
+                arguments: [
+                  EApply(
+                    function: EVariable(name: "-"),
+                    arguments: [EVariable(name: "x"), EInt(value: 1)],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+        body: EApply(EVariable("singleton"), [EInt(42)]),
+      ),
+      int_type(),
     )),
   )
 }
@@ -279,14 +372,18 @@ fn initial_environment() {
     let t =
       TConstructor(
         name: "Function2",
-        type_parameters: [
-          TConstructor(name: "Int", type_parameters: []),
-          TConstructor(name: "Int", type_parameters: []),
-          TConstructor(name: "Int", type_parameters: []),
-        ],
+        type_parameters: [int_type(), int_type(), int_type()],
       )
 
     #(name, t)
   })
   |> map.from_list()
+}
+
+fn int_type() {
+  TConstructor(name: "Int", type_parameters: [])
+}
+
+fn string_type() {
+  TConstructor(name: "String", type_parameters: [])
 }
