@@ -367,17 +367,47 @@ pub fn recursive_functions_test() {
 }
 
 fn initial_environment() {
-  ["+", "-", "*", "/"]
-  |> list.map(fn(name) {
-    let t =
-      TConstructor(
-        name: "Function2",
-        type_parameters: [int_type(), int_type(), int_type()],
-      )
+  let env =
+    list.fold(
+      ["+", "-", "*", "/"],
+      map.new(),
+      fn(acc, name) {
+        let t =
+          TConstructor(
+            name: "Function2",
+            type_parameters: [int_type(), int_type(), int_type()],
+          )
 
-    #(name, t)
-  })
-  |> map.from_list()
+        map.insert(acc, name, t)
+      },
+    )
+
+  let env =
+    list.fold(
+      ["false", "true"],
+      env,
+      fn(acc, name) {
+        let t = TConstructor(name: "Bool", type_parameters: [])
+
+        map.insert(acc, name, t)
+      },
+    )
+
+  let env =
+    list.fold(
+      ["==", "!=", "<", ">"],
+      env,
+      fn(acc, name) {
+        let t =
+          TConstructor(
+            name: "Function2",
+            type_parameters: [int_type(), int_type(), bool_type()],
+          )
+
+        map.insert(acc, name, t)
+      },
+    )
+  env
 }
 
 fn int_type() {
@@ -386,4 +416,8 @@ fn int_type() {
 
 fn string_type() {
   TConstructor(name: "String", type_parameters: [])
+}
+
+fn bool_type() {
+  TConstructor(name: "Bool", type_parameters: [])
 }
