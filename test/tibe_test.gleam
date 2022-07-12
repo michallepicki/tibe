@@ -1,8 +1,9 @@
 import gleeunit
 import gleeunit/should
 import tibe.{
-  EApply, EArray, EFunction, EInt, ELet, ERecursiveFunctions, EString, EVariable,
-  FunctionArgument, GenericType, NotInScope, RecursiveFunction, TConstructor, TypeMismatch,
+  EApply, EArray, EFunction, EInt, ELet, ERecursiveFunctions, ESemicolon, EString,
+  EVariable, FunctionArgument, GenericType, NotInScope, RecursiveFunction, TConstructor,
+  TypeMismatch,
 }
 import gleam/list
 import gleam/map
@@ -407,6 +408,92 @@ pub fn recursive_functions_test() {
         body: EApply(EVariable("even", generics: []), [EInt(42)]),
       ),
       int_type(),
+    )),
+  )
+}
+
+pub fn e1_test() {
+  should.equal(
+    tibe.infer(
+      initial_environment(),
+      ERecursiveFunctions(
+        functions: [
+          RecursiveFunction(
+            name: "singleton",
+            function_type: None,
+            lambda: EFunction(
+              arguments: [FunctionArgument(name: "x", argument_type: None)],
+              return_type: None,
+              body: EArray(
+                item_type: None,
+                items: [EVariable(name: "x", generics: [])],
+              ),
+            ),
+          ),
+        ],
+        body: ESemicolon(
+          before: EApply(
+            function: EVariable(name: "singleton", generics: []),
+            arguments: [EInt(42)],
+          ),
+          after: EApply(
+            function: EVariable(name: "singleton", generics: []),
+            arguments: [EString("foo")],
+          ),
+        ),
+      ),
+    ),
+    Ok(#(
+      ERecursiveFunctions(
+        functions: [
+          RecursiveFunction(
+            name: "singleton",
+            function_type: GenericType(
+              ["GenericVar3"],
+              TConstructor(
+                "Function1",
+                [
+                  TConstructor("GenericVar3", []),
+                  TConstructor("Array", [TConstructor("GenericVar3", [])]),
+                ],
+              ),
+            ),
+            lambda: EFunction(
+              arguments: [
+                FunctionArgument(
+                  name: "x",
+                  argument_type: TConstructor("GenericVar3", []),
+                ),
+              ],
+              return_type: TConstructor(
+                "Array",
+                [TConstructor("GenericVar3", [])],
+              ),
+              body: EArray(
+                item_type: TConstructor("GenericVar3", []),
+                items: [EVariable(name: "x", generics: [])],
+              ),
+            ),
+          ),
+        ],
+        body: ESemicolon(
+          before: EApply(
+            function: EVariable(
+              name: "singleton",
+              generics: [TConstructor("Int", [])],
+            ),
+            arguments: [EInt(42)],
+          ),
+          after: EApply(
+            function: EVariable(
+              name: "singleton",
+              generics: [TConstructor("String", [])],
+            ),
+            arguments: [EString("foo")],
+          ),
+        ),
+      ),
+      TConstructor("Array", [string_type()]),
     )),
   )
 }

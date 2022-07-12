@@ -247,7 +247,8 @@ pub fn infer_type(
                 let function_type = generic_function_type.uninstantiated_type
                 let #(new_type_annotation, new_lambda) =
                   generalize(
-                    recursive_functions_context,
+                    context.environment,
+                    recursive_functions_context.substitution,
                     function_type,
                     function.lambda,
                   )
@@ -270,10 +271,7 @@ pub fn infer_type(
         )
       let context =
         Context(..recursive_functions_context, environment: new_environment)
-      try #(body, recursive_functions_context) =
-        infer_type(body, expected_type, recursive_functions_context)
-      let context =
-        Context(..recursive_functions_context, environment: context.environment)
+      try #(body, context) = infer_type(body, expected_type, context)
       Ok(#(ERecursiveFunctions(functions: new_functions, body: body), context))
     }
     EFunction(arguments: args, return_type: return_type, body: body) -> {
@@ -526,14 +524,15 @@ fn instantiate(
 }
 
 fn generalize(
-  context: Context,
+  environment: Environment,
+  substitution: Substitution,
   t: Type,
   expression: Expression(GenericType, Type),
 ) -> #(GenericType, Expression(GenericType, Type)) {
   let generic_type_variables =
     set.fold(
-      free_in_environment(context),
-      free_in_type(context, t),
+      free_in_environment(environment, substitution),
+      free_in_type(environment, substitution, t),
       fn(acc, i) { set.delete(acc, i) },
     )
   let generic_type_variables =
@@ -543,7 +542,7 @@ fn generalize(
   let #(generic_names_reversed, local_substitution) =
     list.fold(
       generic_type_variables,
-      #([], context.substitution),
+      #([], substitution),
       fn(acc, i) {
         let #(names, substitution) = acc
         let name = string.concat(["GenericVar", int.to_string(i)])
@@ -568,29 +567,45 @@ fn generalize(
   )
 }
 
-fn free_in_type(context: Context, t: Type) -> Set(Int) {
+fn free_in_type(
+  environment: Environment,
+  substitution: Substitution,
+  t: Type,
+) -> Set(Int) {
   case t {
     TVariable(index: i) ->
-      case map.get(context.substitution, i) {
+      case map.get(substitution, i) {
         Ok(substituted_t) if substituted_t != t ->
-          free_in_type(context, substituted_t)
+          free_in_type(environment, substitution, substituted_t)
         _ -> set.insert(set.new(), i)
       }
     TConstructor(name: _, type_parameters: type_parameters) ->
       list.fold(
         type_parameters,
         set.new(),
-        fn(acc, t) { set.union(acc, free_in_type(context, t)) },
+        fn(acc, t) {
+          set.union(acc, free_in_type(environment, substitution, t))
+        },
       )
   }
 }
 
-fn free_in_environment(context: Context) -> Set(Int) {
-  map.values(context.environment)
+fn free_in_environment(
+  environment: Environment,
+  substitution: Substitution,
+) -> Set(Int) {
+  map.values(environment)
   |> list.fold(
     set.new(),
     fn(acc, generic_type) {
-      set.union(acc, free_in_type(context, generic_type.uninstantiated_type))
+      set.union(
+        acc,
+        free_in_type(
+          environment,
+          substitution,
+          generic_type.uninstantiated_type,
+        ),
+      )
     },
   )
 }
