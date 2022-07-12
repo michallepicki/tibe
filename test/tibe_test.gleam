@@ -3,7 +3,7 @@ import gleeunit/should
 import tibe.{
   EApply, EArray, EFunction, EInt, ELet, ERecursiveFunctions, ESemicolon, EString,
   EVariable, FunctionArgument, GenericType, NotInScope, RecursiveFunction, TConstructor,
-  TypeMismatch,
+  TVariable, TypeMismatch,
 }
 import gleam/list
 import gleam/map
@@ -295,123 +295,6 @@ pub fn array_type_mismatch_test() {
   )
 }
 
-pub fn recursive_functions_test() {
-  should.equal(
-    tibe.infer(
-      initial_environment(),
-      ERecursiveFunctions(
-        functions: [
-          RecursiveFunction(
-            name: "even",
-            function_type: None,
-            lambda: EFunction(
-              arguments: [FunctionArgument(name: "x", argument_type: None)],
-              return_type: Some(int_type()),
-              body: EApply(
-                function: EVariable(name: "odd", generics: []),
-                arguments: [
-                  EApply(
-                    function: EVariable(name: "-", generics: []),
-                    arguments: [
-                      EVariable(name: "x", generics: []),
-                      EInt(value: 1),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          RecursiveFunction(
-            name: "odd",
-            function_type: None,
-            lambda: EFunction(
-              arguments: [FunctionArgument(name: "x", argument_type: None)],
-              return_type: None,
-              body: EApply(
-                function: EVariable(name: "even", generics: []),
-                arguments: [
-                  EApply(
-                    function: EVariable(name: "-", generics: []),
-                    arguments: [
-                      EVariable(name: "x", generics: []),
-                      EInt(value: 1),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-        body: EApply(EVariable("even", generics: []), [EInt(42)]),
-      ),
-    ),
-    Ok(#(
-      ERecursiveFunctions(
-        functions: [
-          RecursiveFunction(
-            name: "even",
-            function_type: GenericType(
-              generics: [],
-              uninstantiated_type: TConstructor(
-                name: "Function1",
-                type_parameters: [int_type(), int_type()],
-              ),
-            ),
-            lambda: EFunction(
-              arguments: [
-                FunctionArgument(name: "x", argument_type: int_type()),
-              ],
-              return_type: int_type(),
-              body: EApply(
-                function: EVariable(name: "odd", generics: []),
-                arguments: [
-                  EApply(
-                    function: EVariable(name: "-", generics: []),
-                    arguments: [
-                      EVariable(name: "x", generics: []),
-                      EInt(value: 1),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          RecursiveFunction(
-            name: "odd",
-            function_type: GenericType(
-              generics: [],
-              uninstantiated_type: TConstructor(
-                name: "Function1",
-                type_parameters: [int_type(), int_type()],
-              ),
-            ),
-            lambda: EFunction(
-              arguments: [
-                FunctionArgument(name: "x", argument_type: int_type()),
-              ],
-              return_type: int_type(),
-              body: EApply(
-                function: EVariable(name: "even", generics: []),
-                arguments: [
-                  EApply(
-                    function: EVariable(name: "-", generics: []),
-                    arguments: [
-                      EVariable(name: "x", generics: []),
-                      EInt(value: 1),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-        body: EApply(EVariable("even", generics: []), [EInt(42)]),
-      ),
-      int_type(),
-    )),
-  )
-}
-
 pub fn e1_test() {
   should.equal(
     tibe.infer(
@@ -496,6 +379,125 @@ pub fn e1_test() {
       TConstructor("Array", [string_type()]),
     )),
   )
+}
+
+pub fn e2_test() {
+  should.equal(
+    tibe.infer(
+      initial_environment(),
+      ERecursiveFunctions(
+        functions: [
+          RecursiveFunction(
+            name: "even",
+            function_type: None,
+            lambda: EFunction(
+              arguments: [FunctionArgument(name: "x", argument_type: None)],
+              return_type: None,
+              body: EApply(
+                function: EVariable(name: "odd", generics: []),
+                arguments: [
+                  EApply(
+                    function: EVariable(name: "-", generics: []),
+                    arguments: [
+                      EVariable(name: "x", generics: []),
+                      EInt(value: 1),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          RecursiveFunction(
+            name: "odd",
+            function_type: None,
+            lambda: EFunction(
+              arguments: [FunctionArgument(name: "x", argument_type: None)],
+              return_type: None,
+              body: EApply(
+                function: EVariable(name: "even", generics: []),
+                arguments: [
+                  EApply(
+                    function: EVariable(name: "-", generics: []),
+                    arguments: [
+                      EVariable(name: "x", generics: []),
+                      EInt(value: 1),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+        body: EApply(EVariable("even", generics: []), [EInt(42)]),
+      ),
+    ),
+    Ok(#(
+      ERecursiveFunctions(
+        functions: [
+          RecursiveFunction(
+            name: "even",
+            function_type: GenericType(
+              generics: ["GenericVar3"],
+              uninstantiated_type: TConstructor(
+                name: "Function1",
+                type_parameters: [int_type(), TConstructor("GenericVar3", [])],
+              ),
+            ),
+            lambda: EFunction(
+              arguments: [
+                FunctionArgument(name: "x", argument_type: int_type()),
+              ],
+              return_type: TConstructor("GenericVar3", []),
+              body: EApply(
+                function: EVariable(name: "odd", generics: []),
+                arguments: [
+                  EApply(
+                    function: EVariable(name: "-", generics: []),
+                    arguments: [
+                      EVariable(name: "x", generics: []),
+                      EInt(value: 1),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          RecursiveFunction(
+            name: "odd",
+            function_type: GenericType(
+              generics: ["GenericVar3"],
+              uninstantiated_type: TConstructor(
+                name: "Function1",
+                type_parameters: [int_type(), TConstructor("GenericVar3", [])],
+              ),
+            ),
+            lambda: EFunction(
+              arguments: [
+                FunctionArgument(name: "x", argument_type: int_type()),
+              ],
+              return_type: TConstructor("GenericVar3", []),
+              body: EApply(
+                function: EVariable(name: "even", generics: []),
+                arguments: [
+                  EApply(
+                    function: EVariable(name: "-", generics: []),
+                    arguments: [
+                      EVariable(name: "x", generics: []),
+                      EInt(value: 1),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+        body: EApply(EVariable("even", generics: [TVariable(14)]), [EInt(42)]),
+      ),
+      TVariable(14),
+    )),
+  )
+  // TODO: this seems wrong, why is a type variable returned from inference here?
+  // But it's the same as in the tutorial's example, so...
 }
 
 fn initial_environment() {
