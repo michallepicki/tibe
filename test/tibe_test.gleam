@@ -2,7 +2,7 @@ import gleeunit
 import gleeunit/should
 import tibe.{
   EApply, EArray, EFunction, EInt, ELet, ERecursiveFunctions, EString, EVariable,
-  FunctionArgument, NotInScope, RecursiveFunction, TConstructor, TypeMismatch,
+  FunctionArgument, GenericType, NotInScope, RecursiveFunction, TConstructor, TypeMismatch,
 }
 import gleam/list
 import gleam/map
@@ -14,7 +14,7 @@ pub fn main() {
 
 pub fn scope_error_test() {
   should.equal(
-    tibe.infer(initial_environment(), EVariable(name: "x")),
+    tibe.infer(initial_environment(), EVariable(name: "x", generics: [])),
     Error(NotInScope("x")),
   )
 }
@@ -30,8 +30,11 @@ pub fn function_test() {
         ],
         return_type: None,
         body: EApply(
-          function: EVariable(name: "+"),
-          arguments: [EVariable(name: "x"), EVariable(name: "y")],
+          function: EVariable(name: "+", generics: []),
+          arguments: [
+            EVariable(name: "x", generics: []),
+            EVariable(name: "y", generics: []),
+          ],
         ),
       ),
     ),
@@ -43,8 +46,11 @@ pub fn function_test() {
         ],
         return_type: TConstructor("Int", []),
         body: EApply(
-          function: EVariable(name: "+"),
-          arguments: [EVariable(name: "x"), EVariable(name: "y")],
+          function: EVariable(name: "+", generics: []),
+          arguments: [
+            EVariable(name: "x", generics: []),
+            EVariable(name: "y", generics: []),
+          ],
         ),
       ),
       TConstructor(
@@ -85,8 +91,11 @@ pub fn function_annotated_test() {
         ],
         return_type: Some(TConstructor("Int", [])),
         body: EApply(
-          function: EVariable(name: "+"),
-          arguments: [EVariable(name: "x"), EVariable(name: "y")],
+          function: EVariable(name: "+", generics: []),
+          arguments: [
+            EVariable(name: "x", generics: []),
+            EVariable(name: "y", generics: []),
+          ],
         ),
       ),
     ),
@@ -98,8 +107,11 @@ pub fn function_annotated_test() {
         ],
         return_type: TConstructor("Int", []),
         body: EApply(
-          function: EVariable(name: "+"),
-          arguments: [EVariable(name: "x"), EVariable(name: "y")],
+          function: EVariable(name: "+", generics: []),
+          arguments: [
+            EVariable(name: "x", generics: []),
+            EVariable(name: "y", generics: []),
+          ],
         ),
       ),
       t,
@@ -112,7 +124,7 @@ pub fn function_type_mismatch_test() {
     tibe.infer(
       initial_environment(),
       EApply(
-        function: EVariable(name: "+"),
+        function: EVariable(name: "+", generics: []),
         arguments: [EInt(value: 10), EString(value: "some_string")],
       ),
     ),
@@ -129,8 +141,11 @@ pub fn let_test() {
         value_type: None,
         value: EInt(value: 10),
         body: EApply(
-          function: EVariable(name: "+"),
-          arguments: [EVariable(name: "x"), EVariable(name: "x")],
+          function: EVariable(name: "+", generics: []),
+          arguments: [
+            EVariable(name: "x", generics: []),
+            EVariable(name: "x", generics: []),
+          ],
         ),
       ),
     ),
@@ -140,8 +155,11 @@ pub fn let_test() {
         value_type: TConstructor("Int", []),
         value: EInt(value: 10),
         body: EApply(
-          function: EVariable(name: "+"),
-          arguments: [EVariable(name: "x"), EVariable(name: "x")],
+          function: EVariable(name: "+", generics: []),
+          arguments: [
+            EVariable(name: "x", generics: []),
+            EVariable(name: "x", generics: []),
+          ],
         ),
       ),
       TConstructor("Int", []),
@@ -159,8 +177,11 @@ pub fn let_annotated_test() {
         value_type: Some(t),
         value: EInt(value: 10),
         body: EApply(
-          function: EVariable(name: "+"),
-          arguments: [EVariable(name: "x"), EVariable(name: "x")],
+          function: EVariable(name: "+", generics: []),
+          arguments: [
+            EVariable(name: "x", generics: []),
+            EVariable(name: "x", generics: []),
+          ],
         ),
       ),
     ),
@@ -170,8 +191,11 @@ pub fn let_annotated_test() {
         value_type: t,
         value: EInt(value: 10),
         body: EApply(
-          function: EVariable(name: "+"),
-          arguments: [EVariable(name: "x"), EVariable(name: "x")],
+          function: EVariable(name: "+", generics: []),
+          arguments: [
+            EVariable(name: "x", generics: []),
+            EVariable(name: "x", generics: []),
+          ],
         ),
       ),
       t,
@@ -189,10 +213,13 @@ pub fn let_apply_test() {
         value: EFunction(
           arguments: [FunctionArgument(name: "x", argument_type: None)],
           return_type: None,
-          body: EArray(item_type: None, items: [EVariable(name: "x")]),
+          body: EArray(
+            item_type: None,
+            items: [EVariable(name: "x", generics: [])],
+          ),
         ),
         body: EApply(
-          function: EVariable("singleton"),
+          function: EVariable("singleton", generics: []),
           arguments: [EInt(value: 42)],
         ),
       ),
@@ -214,11 +241,11 @@ pub fn let_apply_test() {
           return_type: TConstructor("Array", [TConstructor("Int", [])]),
           body: EArray(
             item_type: TConstructor("Int", []),
-            items: [EVariable(name: "x")],
+            items: [EVariable(name: "x", generics: [])],
           ),
         ),
         EApply(
-          function: EVariable(name: "singleton"),
+          function: EVariable(name: "singleton", generics: []),
           arguments: [EInt(value: 42)],
         ),
       ),
@@ -280,11 +307,14 @@ pub fn recursive_functions_test() {
               arguments: [FunctionArgument(name: "x", argument_type: None)],
               return_type: Some(int_type()),
               body: EApply(
-                function: EVariable(name: "odd"),
+                function: EVariable(name: "odd", generics: []),
                 arguments: [
                   EApply(
-                    function: EVariable(name: "-"),
-                    arguments: [EVariable(name: "x"), EInt(value: 1)],
+                    function: EVariable(name: "-", generics: []),
+                    arguments: [
+                      EVariable(name: "x", generics: []),
+                      EInt(value: 1),
+                    ],
                   ),
                 ],
               ),
@@ -297,18 +327,21 @@ pub fn recursive_functions_test() {
               arguments: [FunctionArgument(name: "x", argument_type: None)],
               return_type: None,
               body: EApply(
-                function: EVariable(name: "even"),
+                function: EVariable(name: "even", generics: []),
                 arguments: [
                   EApply(
-                    function: EVariable(name: "-"),
-                    arguments: [EVariable(name: "x"), EInt(value: 1)],
+                    function: EVariable(name: "-", generics: []),
+                    arguments: [
+                      EVariable(name: "x", generics: []),
+                      EInt(value: 1),
+                    ],
                   ),
                 ],
               ),
             ),
           ),
         ],
-        body: EApply(EVariable("even"), [EInt(42)]),
+        body: EApply(EVariable("even", generics: []), [EInt(42)]),
       ),
     ),
     Ok(#(
@@ -316,9 +349,12 @@ pub fn recursive_functions_test() {
         functions: [
           RecursiveFunction(
             name: "even",
-            function_type: TConstructor(
-              name: "Function1",
-              type_parameters: [int_type(), int_type()],
+            function_type: GenericType(
+              generics: [],
+              uninstantiated_type: TConstructor(
+                name: "Function1",
+                type_parameters: [int_type(), int_type()],
+              ),
             ),
             lambda: EFunction(
               arguments: [
@@ -326,11 +362,14 @@ pub fn recursive_functions_test() {
               ],
               return_type: int_type(),
               body: EApply(
-                function: EVariable(name: "odd"),
+                function: EVariable(name: "odd", generics: []),
                 arguments: [
                   EApply(
-                    function: EVariable(name: "-"),
-                    arguments: [EVariable(name: "x"), EInt(value: 1)],
+                    function: EVariable(name: "-", generics: []),
+                    arguments: [
+                      EVariable(name: "x", generics: []),
+                      EInt(value: 1),
+                    ],
                   ),
                 ],
               ),
@@ -338,9 +377,12 @@ pub fn recursive_functions_test() {
           ),
           RecursiveFunction(
             name: "odd",
-            function_type: TConstructor(
-              name: "Function1",
-              type_parameters: [int_type(), int_type()],
+            function_type: GenericType(
+              generics: [],
+              uninstantiated_type: TConstructor(
+                name: "Function1",
+                type_parameters: [int_type(), int_type()],
+              ),
             ),
             lambda: EFunction(
               arguments: [
@@ -348,18 +390,21 @@ pub fn recursive_functions_test() {
               ],
               return_type: int_type(),
               body: EApply(
-                function: EVariable(name: "even"),
+                function: EVariable(name: "even", generics: []),
                 arguments: [
                   EApply(
-                    function: EVariable(name: "-"),
-                    arguments: [EVariable(name: "x"), EInt(value: 1)],
+                    function: EVariable(name: "-", generics: []),
+                    arguments: [
+                      EVariable(name: "x", generics: []),
+                      EInt(value: 1),
+                    ],
                   ),
                 ],
               ),
             ),
           ),
         ],
-        body: EApply(EVariable("even"), [EInt(42)]),
+        body: EApply(EVariable("even", generics: []), [EInt(42)]),
       ),
       int_type(),
     )),
@@ -378,7 +423,7 @@ fn initial_environment() {
             type_parameters: [int_type(), int_type(), int_type()],
           )
 
-        map.insert(acc, name, t)
+        map.insert(acc, name, GenericType(generics: [], uninstantiated_type: t))
       },
     )
 
@@ -389,7 +434,7 @@ fn initial_environment() {
       fn(acc, name) {
         let t = TConstructor(name: "Bool", type_parameters: [])
 
-        map.insert(acc, name, t)
+        map.insert(acc, name, GenericType(generics: [], uninstantiated_type: t))
       },
     )
 
@@ -404,7 +449,7 @@ fn initial_environment() {
             type_parameters: [int_type(), int_type(), bool_type()],
           )
 
-        map.insert(acc, name, t)
+        map.insert(acc, name, GenericType(generics: [], uninstantiated_type: t))
       },
     )
   env

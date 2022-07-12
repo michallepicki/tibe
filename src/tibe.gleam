@@ -1,25 +1,26 @@
 //// [Type Inference by Example](https://ahnfelt.medium.com/type-inference-by-example-793d83f98382)
 //// but implemented in Gleam.
 //// 
-//// Part 7a recursive functions
+//// Part 7
 
 import gleam/map.{Map}
 import gleam/list
 import gleam/string
 import gleam/int
 import gleam/option.{None, Option, Some}
+import gleam/set.{Set}
 
 /// AST type representing our language.
 ///
 /// An Expression is the input of our typechecker program.
 /// In `infer_type` it is processed to Types, Substutions, Environment mappings,
 /// and Constraints.
-pub type Expression(t) {
+pub type Expression(g, t) {
   /// A list of functions that may potentially call each other
   /// and are in scope in `body`.
   ERecursiveFunctions(
-    functions: List(RecursiveFunction(t)),
-    body: Expression(t),
+    functions: List(RecursiveFunction(g, t)),
+    body: Expression(g, t),
   )
   /// A function is defined by a list of argument names and the expression
   /// it evaluates to (function body).
@@ -29,36 +30,45 @@ pub type Expression(t) {
   EFunction(
     arguments: List(FunctionArgument(t)),
     return_type: t,
-    body: Expression(t),
+    body: Expression(g, t),
   )
   /// An application is a function call. It is defined by a function expression
   /// which will be called, and the argument expressions being passed
   /// to this function.
-  EApply(function: Expression(t), arguments: List(Expression(t)))
+  EApply(function: Expression(g, t), arguments: List(Expression(g, t)))
   /// A let expression allows to bind some value to a name, so that it can be
   /// accessed in the current scope (inside of let's body).
   /// It can have its type optionally annotated.
   /// Inferred type gets also set there after inference.
-  ELet(name: String, value_type: t, value: Expression(t), body: Expression(t))
+  ELet(
+    name: String,
+    value_type: t,
+    value: Expression(g, t),
+    body: Expression(g, t),
+  )
   /// An expression variable is a name that is bound to some value.
   /// This can be a function argument, a let binding, or some predefined value
   /// like the "+" abstraction.
-  EVariable(name: String)
+  EVariable(name: String, generics: List(Type))
   /// Literal integer expression
   EInt(value: Int)
   /// Literal string expression
   EString(value: String)
   /// Literal array expression. Can have its item types optionally annotated
   /// (in `item_type`). This is also where inferred item type gets set.
-  EArray(item_type: t, items: List(Expression(t)))
+  EArray(item_type: t, items: List(Expression(g, t)))
 }
 
-pub type RecursiveFunction(t) {
-  RecursiveFunction(name: String, function_type: t, lambda: Expression(t))
+pub type RecursiveFunction(g, t) {
+  RecursiveFunction(name: String, function_type: g, lambda: Expression(g, t))
 }
 
 pub type FunctionArgument(t) {
   FunctionArgument(name: String, argument_type: t)
+}
+
+pub type GenericType {
+  GenericType(generics: List(String), uninstantiated_type: Type)
 }
 
 /// The Type type represents the types of our small lanuguage.
@@ -82,6 +92,9 @@ pub type Type {
   TVariable(index: Int)
 }
 
+pub type GenericTypeAnnotation =
+  Option(GenericType)
+
 pub type TypeAnnotation =
   Option(Type)
 
@@ -97,7 +110,7 @@ pub type Context {
 /// The environment maps bound value names to their types
 /// (either concrete types, or just type variables).
 pub type Environment =
-  Map(String, Type)
+  Map(String, GenericType)
 
 /// A constraint represents the dependency between two type variables
 /// or concrete types, that still needs to be checked.
@@ -131,8 +144,8 @@ pub fn main() {
 
 pub fn infer(
   environment: Environment,
-  expression: Expression(TypeAnnotation),
-) -> Result(#(Expression(Type), Type), TypeCheckError) {
+  expression: Expression(GenericTypeAnnotation, TypeAnnotation),
+) -> Result(#(Expression(GenericType, Type), Type), TypeCheckError) {
   let context =
     Context(
       environment: environment,
@@ -154,45 +167,59 @@ pub fn infer(
 /// introducing new expression variables and checking that referenced expression
 /// variables exist along the way.
 pub fn infer_type(
-  expression: Expression(TypeAnnotation),
+  expression: Expression(GenericTypeAnnotation, TypeAnnotation),
   expected_type: Type,
   context: Context,
-) -> Result(#(Expression(Type), Context), TypeCheckError) {
+) -> Result(#(Expression(GenericType, Type), Context), TypeCheckError) {
   case expression {
     ERecursiveFunctions(functions: functions, body: body) -> {
-      let #(recursive_environment, context) =
+      let #(recursive_environment, annotations_tracker, context) =
         list.fold(
           functions,
-          #(context.environment, context),
+          #(context.environment, map.new(), context),
           fn(acc, function) {
-            let #(recursive_environment, context) = acc
-            let #(type_variable, context) =
-              type_or_fresh_variable(function.function_type, context)
+            let #(recursive_environment, annotations_tracker, context) = acc
+            let #(function_type, had_annotation, context) = case function.function_type {
+              None -> {
+                let #(t, context) = fresh_type_variable(context)
+                #(
+                  GenericType(generics: [], uninstantiated_type: t),
+                  False,
+                  context,
+                )
+              }
+              Some(generic_function_type) -> #(
+                generic_function_type,
+                True,
+                context,
+              )
+            }
             #(
-              map.insert(recursive_environment, function.name, type_variable),
+              map.insert(recursive_environment, function.name, function_type),
+              map.insert(annotations_tracker, function.name, had_annotation),
               context,
             )
           },
         )
-      try #(functions, recursive_functions_context) =
+      try #(ungeneralized_functions_reversed, recursive_functions_context) =
         list.try_fold(
           functions,
           #([], context),
           fn(acc, function) {
             let #(functions, context) = acc
-            assert Ok(type_variable) =
+            assert Ok(generic_function_type) =
               map.get(recursive_environment, function.name)
             try #(lambda, context) =
               infer_type(
                 function.lambda,
-                type_variable,
+                generic_function_type.uninstantiated_type,
                 Context(..context, environment: recursive_environment),
               )
             Ok(#(
               [
                 RecursiveFunction(
                   name: function.name,
-                  function_type: type_variable,
+                  function_type: generic_function_type,
                   lambda: lambda,
                 ),
                 ..functions
@@ -201,16 +228,52 @@ pub fn infer_type(
             ))
           },
         )
+      let ungeneralized_functions =
+        list.reverse(ungeneralized_functions_reversed)
       try recursive_functions_context =
         solve_constraints(recursive_functions_context)
+      let new_functions =
+        list.map(
+          ungeneralized_functions,
+          fn(function) {
+            assert Ok(generic_function_type) =
+              map.get(recursive_environment, function.name)
+            assert Ok(had_annotation) =
+              map.get(annotations_tracker, function.name)
+            case had_annotation {
+              True -> function
+              False -> {
+                let function_type = generic_function_type.uninstantiated_type
+                let #(new_type_annotation, new_lambda) =
+                  generalize(
+                    recursive_functions_context,
+                    function_type,
+                    function.lambda,
+                  )
+                RecursiveFunction(
+                  name: function.name,
+                  function_type: new_type_annotation,
+                  lambda: new_lambda,
+                )
+              }
+            }
+          },
+        )
+      let new_environment =
+        list.fold(
+          new_functions,
+          context.environment,
+          fn(acc, function) {
+            map.insert(acc, function.name, function.function_type)
+          },
+        )
+      let context =
+        Context(..recursive_functions_context, environment: new_environment)
       try #(body, recursive_functions_context) =
         infer_type(body, expected_type, recursive_functions_context)
       let context =
         Context(..recursive_functions_context, environment: context.environment)
-      Ok(#(
-        ERecursiveFunctions(functions: list.reverse(functions), body: body),
-        context,
-      ))
+      Ok(#(ERecursiveFunctions(functions: new_functions, body: body), context))
     }
     EFunction(arguments: args, return_type: return_type, body: body) -> {
       let #(return_type, context) = type_or_fresh_variable(return_type, context)
@@ -226,7 +289,11 @@ pub fn infer_type(
             let context =
               Context(
                 ..context,
-                environment: map.insert(context.environment, arg_name, t),
+                environment: map.insert(
+                  context.environment,
+                  arg_name,
+                  GenericType(generics: [], uninstantiated_type: t),
+                ),
               )
             #(
               [
@@ -301,7 +368,11 @@ pub fn infer_type(
       let context =
         Context(
           ..context,
-          environment: map.insert(context.environment, name, value_type),
+          environment: map.insert(
+            context.environment,
+            name,
+            GenericType(generics: [], uninstantiated_type: value_type),
+          ),
         )
       try #(body, context) = infer_type(body, expected_type, context)
       Ok(#(
@@ -309,10 +380,44 @@ pub fn infer_type(
         context,
       ))
     }
-    EVariable(name: x) ->
+    EVariable(name: x, generics: annotated_generics) ->
       case map.get(context.environment, x) {
-        Ok(t) ->
-          Ok(#(EVariable(name: x), constrain_type(expected_type, t, context)))
+        Ok(GenericType(
+          generics: generics,
+          uninstantiated_type: uninstantiated_type,
+        )) -> {
+          let #(new_generics_reversed, instantiation, context) =
+            list.fold(
+              generics,
+              #([], map.new(), context),
+              fn(acc, name) {
+                let #(new_generics_acc, instantiation, context) = acc
+                let #(v, context) = fresh_type_variable(context)
+                let instantiation = map.insert(instantiation, name, v)
+                #([v, ..new_generics_acc], instantiation, context)
+              },
+            )
+          let new_generics = list.reverse(new_generics_reversed)
+          let variable_type =
+            instantiate(instantiation, uninstantiated_type, context)
+          let context = case annotated_generics {
+            [] -> context
+            annotated_generics -> {
+              assert True =
+                list.length(annotated_generics) == list.length(new_generics)
+              list.zip(annotated_generics, new_generics)
+              |> list.fold(
+                context,
+                fn(context, el) {
+                  let #(annotation, type_variable) = el
+                  constrain_type(annotation, type_variable, context)
+                },
+              )
+            }
+          }
+          let context = constrain_type(expected_type, variable_type, context)
+          Ok(#(EVariable(name: x, generics: new_generics), context))
+        }
         Error(_) -> Error(NotInScope(x))
       }
     EInt(value: v) ->
@@ -373,6 +478,113 @@ pub fn constrain_type(t1: Type, t2: Type, context: Context) -> Context {
   Context(
     ..context,
     type_constraints: [CEquality(t1, t2), ..context.type_constraints],
+  )
+}
+
+fn instantiate(
+  instantiation: Map(String, Type),
+  t: Type,
+  context: Context,
+) -> Type {
+  case map.size(instantiation) == 0 {
+    True -> t
+    False ->
+      case t {
+        TVariable(index: i) ->
+          case map.get(context.substitution, i) {
+            Ok(substituted_t) if substituted_t != t ->
+              instantiate(instantiation, substituted_t, context)
+            _ -> t
+          }
+        TConstructor(name: name, type_parameters: type_parameters) ->
+          case map.get(instantiation, name) {
+            Ok(instantiation_type) -> {
+              assert True = list.length(type_parameters) == 0
+              instantiation_type
+            }
+            _ ->
+              TConstructor(
+                name: name,
+                type_parameters: list.map(
+                  type_parameters,
+                  fn(type_parameter) {
+                    instantiate(instantiation, type_parameter, context)
+                  },
+                ),
+              )
+          }
+        t -> t
+      }
+  }
+}
+
+fn generalize(
+  context: Context,
+  t: Type,
+  expression: Expression(GenericType, Type),
+) -> #(GenericType, Expression(GenericType, Type)) {
+  let generic_type_variables =
+    set.fold(
+      free_in_environment(context),
+      free_in_type(context, t),
+      fn(acc, i) { set.delete(acc, i) },
+    )
+  let generic_type_variables =
+    generic_type_variables
+    |> set.to_list()
+    |> list.sort(int.compare)
+  let #(generic_names_reversed, local_substitution) =
+    list.fold(
+      generic_type_variables,
+      #([], context.substitution),
+      fn(acc, i) {
+        let #(names, substitution) = acc
+        let name = string.concat(["GenericVar", int.to_string(i)])
+        #(
+          [name, ..names],
+          map.insert(
+            substitution,
+            i,
+            TConstructor(name: name, type_parameters: []),
+          ),
+        )
+      },
+    )
+  let new_expression = substitute_expression(expression, local_substitution)
+  let new_type = substitute(t, local_substitution)
+  #(
+    GenericType(
+      generics: list.reverse(generic_names_reversed),
+      uninstantiated_type: new_type,
+    ),
+    new_expression,
+  )
+}
+
+fn free_in_type(context: Context, t: Type) -> Set(Int) {
+  case t {
+    TVariable(index: i) ->
+      case map.get(context.substitution, i) {
+        Ok(substituted_t) if substituted_t != t ->
+          free_in_type(context, substituted_t)
+        _ -> set.insert(set.new(), i)
+      }
+    TConstructor(name: _, type_parameters: type_parameters) ->
+      list.fold(
+        type_parameters,
+        set.new(),
+        fn(acc, t) { set.union(acc, free_in_type(context, t)) },
+      )
+  }
+}
+
+fn free_in_environment(context: Context) -> Set(Int) {
+  map.values(context.environment)
+  |> list.fold(
+    set.new(),
+    fn(acc, generic_type) {
+      set.union(acc, free_in_type(context, generic_type.uninstantiated_type))
+    },
   )
 }
 
@@ -477,9 +689,9 @@ pub fn occurs_in(index: Int, t: Type, substitution: Substitution) -> Bool {
 /// A function to traverse an expression and reprace all type variables
 /// with concrete types at the end of typechecking (where possible)
 pub fn substitute_expression(
-  expression: Expression(Type),
+  expression: Expression(GenericType, Type),
   substitution: Substitution,
-) -> Expression(Type) {
+) -> Expression(GenericType, Type) {
   case expression {
     ERecursiveFunctions(functions: functions, body: body) -> {
       let functions =
@@ -491,7 +703,14 @@ pub fn substitute_expression(
               function_type: function_type,
               lambda: lambda,
             ) = function
-            let function_type = substitute(function_type, substitution)
+            let function_type =
+              GenericType(
+                generics: function_type.generics,
+                uninstantiated_type: substitute(
+                  function_type.uninstantiated_type,
+                  substitution,
+                ),
+              )
             let lambda = substitute_expression(lambda, substitution)
             RecursiveFunction(
               name: name,
@@ -524,7 +743,10 @@ pub fn substitute_expression(
         list.map(arguments, substitute_expression(_, substitution))
       EApply(function: function, arguments: arguments)
     }
-    EVariable(_) -> expression
+    EVariable(name: name, generics: generics) -> {
+      let new_generics = list.map(generics, substitute(_, substitution))
+      EVariable(name: name, generics: new_generics)
+    }
     ELet(name: name, value_type: value_type, value: value, body: body) -> {
       let value_type = substitute(value_type, substitution)
       let value = substitute_expression(value, substitution)
