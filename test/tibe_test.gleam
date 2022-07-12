@@ -452,6 +452,29 @@ fn initial_environment() {
         map.insert(acc, name, GenericType(generics: [], uninstantiated_type: t))
       },
     )
+  let env =
+    map.insert(
+      env,
+      "if",
+      GenericType(
+        generics: ["T"],
+        uninstantiated_type: TConstructor(
+          name: "Function3",
+          type_parameters: [
+            bool_type(),
+            TConstructor(
+              name: "Function0",
+              type_parameters: [TConstructor(name: "T", type_parameters: [])],
+            ),
+            TConstructor(
+              name: "Function0",
+              type_parameters: [TConstructor(name: "T", type_parameters: [])],
+            ),
+            TConstructor(name: "T", type_parameters: []),
+          ],
+        ),
+      ),
+    )
   env
 }
 

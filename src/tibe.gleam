@@ -57,6 +57,7 @@ pub type Expression(g, t) {
   /// Literal array expression. Can have its item types optionally annotated
   /// (in `item_type`). This is also where inferred item type gets set.
   EArray(item_type: t, items: List(Expression(g, t)))
+  ESemicolon(before: Expression(g, t), after: Expression(g, t))
 }
 
 pub type RecursiveFunction(g, t) {
@@ -451,6 +452,12 @@ pub fn infer_type(
         ),
       ))
     }
+    ESemicolon(before: before, after: after) -> {
+      let #(before_type, context) = fresh_type_variable(context)
+      try #(new_before, context) = infer_type(before, before_type, context)
+      try #(new_after, context) = infer_type(after, expected_type, context)
+      Ok(#(ESemicolon(before: new_before, after: new_after), context))
+    }
   }
 }
 
@@ -759,6 +766,11 @@ pub fn substitute_expression(
       let item_type = substitute(item_type, substitution)
       let items = list.map(items, substitute_expression(_, substitution))
       EArray(item_type: item_type, items: items)
+    }
+    ESemicolon(before: before, after: after) -> {
+      let before = substitute_expression(before, substitution)
+      let after = substitute_expression(after, substitution)
+      ESemicolon(before: before, after: after)
     }
   }
 }
