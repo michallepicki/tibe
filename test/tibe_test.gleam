@@ -500,6 +500,207 @@ pub fn e2_test() {
   // But it's the same as in the tutorial's example, so...
 }
 
+pub fn e3_test() {
+  should.equal(
+    tibe.infer(
+      initial_environment(),
+      ERecursiveFunctions(
+        functions: [
+          RecursiveFunction(
+            name: "even",
+            function_type: None,
+            lambda: EFunction(
+              arguments: [FunctionArgument(name: "x", argument_type: None)],
+              return_type: None,
+              body: EApply(
+                function: EVariable(name: "if", generics: []),
+                arguments: [
+                  EApply(
+                    function: EVariable(name: "==", generics: []),
+                    arguments: [
+                      EVariable(name: "x", generics: []),
+                      EInt(value: 0),
+                    ],
+                  ),
+                  EFunction(
+                    arguments: [],
+                    return_type: None,
+                    body: EVariable(name: "true", generics: []),
+                  ),
+                  EFunction(
+                    arguments: [],
+                    return_type: None,
+                    body: EApply(
+                      function: EVariable(name: "odd", generics: []),
+                      arguments: [
+                        EApply(
+                          function: EVariable(name: "-", generics: []),
+                          arguments: [
+                            EVariable(name: "x", generics: []),
+                            EInt(1),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          RecursiveFunction(
+            name: "odd",
+            function_type: None,
+            lambda: EFunction(
+              arguments: [FunctionArgument(name: "x", argument_type: None)],
+              return_type: None,
+              body: EApply(
+                function: EVariable(name: "if", generics: []),
+                arguments: [
+                  EApply(
+                    function: EVariable(name: "==", generics: []),
+                    arguments: [
+                      EVariable(name: "x", generics: []),
+                      EInt(value: 0),
+                    ],
+                  ),
+                  EFunction(
+                    arguments: [],
+                    return_type: None,
+                    body: EVariable(name: "false", generics: []),
+                  ),
+                  EFunction(
+                    arguments: [],
+                    return_type: None,
+                    body: EApply(
+                      function: EVariable(name: "even", generics: []),
+                      arguments: [
+                        EApply(
+                          function: EVariable(name: "-", generics: []),
+                          arguments: [
+                            EVariable(name: "x", generics: []),
+                            EInt(1),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+        body: EApply(EVariable("even", generics: []), [EInt(42)]),
+      ),
+    ),
+    Ok(#(
+      ERecursiveFunctions(
+        functions: [
+          RecursiveFunction(
+            name: "even",
+            function_type: GenericType(
+              generics: [],
+              uninstantiated_type: TConstructor(
+                name: "Function1",
+                type_parameters: [int_type(), bool_type()],
+              ),
+            ),
+            lambda: EFunction(
+              arguments: [
+                FunctionArgument(name: "x", argument_type: int_type()),
+              ],
+              return_type: bool_type(),
+              body: EApply(
+                function: EVariable(name: "if", generics: [bool_type()]),
+                arguments: [
+                  EApply(
+                    function: EVariable(name: "==", generics: []),
+                    arguments: [
+                      EVariable(name: "x", generics: []),
+                      EInt(value: 0),
+                    ],
+                  ),
+                  EFunction(
+                    arguments: [],
+                    return_type: bool_type(),
+                    body: EVariable(name: "true", generics: []),
+                  ),
+                  EFunction(
+                    arguments: [],
+                    return_type: bool_type(),
+                    body: EApply(
+                      function: EVariable(name: "odd", generics: []),
+                      arguments: [
+                        EApply(
+                          function: EVariable(name: "-", generics: []),
+                          arguments: [
+                            EVariable(name: "x", generics: []),
+                            EInt(1),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          RecursiveFunction(
+            name: "odd",
+            function_type: GenericType(
+              generics: [],
+              uninstantiated_type: TConstructor(
+                name: "Function1",
+                type_parameters: [int_type(), bool_type()],
+              ),
+            ),
+            lambda: EFunction(
+              arguments: [
+                FunctionArgument(name: "x", argument_type: int_type()),
+              ],
+              return_type: bool_type(),
+              body: EApply(
+                function: EVariable(name: "if", generics: [bool_type()]),
+                arguments: [
+                  EApply(
+                    function: EVariable(name: "==", generics: []),
+                    arguments: [
+                      EVariable(name: "x", generics: []),
+                      EInt(value: 0),
+                    ],
+                  ),
+                  EFunction(
+                    arguments: [],
+                    return_type: bool_type(),
+                    body: EVariable(name: "false", generics: []),
+                  ),
+                  EFunction(
+                    arguments: [],
+                    return_type: bool_type(),
+                    body: EApply(
+                      function: EVariable(name: "even", generics: []),
+                      arguments: [
+                        EApply(
+                          function: EVariable(name: "-", generics: []),
+                          arguments: [
+                            EVariable(name: "x", generics: []),
+                            EInt(1),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+        body: EApply(EVariable("even", generics: []), [EInt(42)]),
+      ),
+      TConstructor(name: "Bool", type_parameters: []),
+    )),
+  )
+}
+
 fn initial_environment() {
   let env =
     list.fold(
