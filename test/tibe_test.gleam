@@ -2,8 +2,8 @@ import gleeunit
 import gleeunit/should
 import tibe.{
   EApply, EArray, EFunction, EInt, ELet, ERecursiveFunctions, ESemicolon, EString,
-  EVariable, FunctionArgument, GenericType, NotInScope, RecursiveFunction, TConstructor,
-  TVariable, TypeMismatch,
+  EVariable, FunctionArgument, GenericType, NotInScope, OccursError, RecursiveFunction,
+  TConstructor, TVariable, TypeMismatch,
 }
 import gleam/list
 import gleam/map
@@ -501,6 +501,23 @@ pub fn e4_test() {
         EApply(EVariable("id", [string_type()]), [EString("foo")]),
       ),
       string_type(),
+    )),
+  )
+}
+
+pub fn e5_test() {
+  should.equal(
+    tibe.infer(
+      initial_environment(),
+      EFunction(
+        [FunctionArgument("x", None)],
+        None,
+        EApply(EVariable("x", []), [EVariable("x", [])]),
+      ),
+    ),
+    Error(OccursError(
+      index: 3,
+      t: TConstructor("Function1", [TVariable(3), TVariable(1)]),
     )),
   )
 }
