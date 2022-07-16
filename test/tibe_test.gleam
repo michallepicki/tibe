@@ -522,6 +522,121 @@ pub fn e5_test() {
   )
 }
 
+pub fn e6_test() {
+  should.equal(
+    tibe.infer(
+      initial_environment(),
+      ERecursiveFunctions(
+        [
+          RecursiveFunction(
+            "compose",
+            None,
+            EFunction(
+              [FunctionArgument("f", None), FunctionArgument("g", None)],
+              None,
+              EFunction(
+                [FunctionArgument("x", None)],
+                None,
+                EApply(
+                  EVariable("f", []),
+                  [EApply(EVariable("g", []), [EVariable("x", [])])],
+                ),
+              ),
+            ),
+          ),
+        ],
+        EVariable("compose", []),
+      ),
+    ),
+    Ok(#(
+      ERecursiveFunctions(
+        [
+          RecursiveFunction(
+            "compose",
+            GenericType(
+              ["GenericVar5", "GenericVar6", "GenericVar7"],
+              TConstructor(
+                "Function2",
+                [
+                  TConstructor(
+                    "Function1",
+                    [
+                      TConstructor("GenericVar7", []),
+                      TConstructor("GenericVar5", []),
+                    ],
+                  ),
+                  TConstructor(
+                    "Function1",
+                    [
+                      TConstructor("GenericVar6", []),
+                      TConstructor("GenericVar7", []),
+                    ],
+                  ),
+                  TConstructor(
+                    "Function1",
+                    [
+                      TConstructor("GenericVar6", []),
+                      TConstructor("GenericVar5", []),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            EFunction(
+              [
+                FunctionArgument(
+                  "f",
+                  TConstructor(
+                    "Function1",
+                    [
+                      TConstructor("GenericVar7", []),
+                      TConstructor("GenericVar5", []),
+                    ],
+                  ),
+                ),
+                FunctionArgument(
+                  "g",
+                  TConstructor(
+                    "Function1",
+                    [
+                      TConstructor("GenericVar6", []),
+                      TConstructor("GenericVar7", []),
+                    ],
+                  ),
+                ),
+              ],
+              TConstructor(
+                "Function1",
+                [
+                  TConstructor("GenericVar6", []),
+                  TConstructor("GenericVar5", []),
+                ],
+              ),
+              EFunction(
+                [FunctionArgument("x", TConstructor("GenericVar6", []))],
+                TConstructor("GenericVar5", []),
+                EApply(
+                  EVariable("f", []),
+                  [EApply(EVariable("g", []), [EVariable("x", [])])],
+                ),
+              ),
+            ),
+          ),
+        ],
+        EVariable("compose", [TVariable(9), TVariable(10), TVariable(11)]),
+      ),
+      TConstructor(
+        "Function2",
+        [
+          TConstructor("Function1", [TVariable(11), TVariable(9)]),
+          TConstructor("Function1", [TVariable(10), TVariable(11)]),
+          TConstructor("Function1", [TVariable(10), TVariable(9)]),
+        ],
+      ),
+    )),
+  )
+}
+
 fn initial_environment() {
   let env =
     list.fold(
