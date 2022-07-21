@@ -1,9 +1,9 @@
 import gleeunit
 import gleeunit/should
 import tibe.{
-  EApply, EArray, EFunction, EInt, ELet, ERecursiveFunctions, ESemicolon, EString,
-  EVariable, FunctionArgument, GenericType, NotInScope, OccursError, RecursiveFunction,
-  TConstructor, TVariable, TypeMismatch,
+  EApply, EArray, EFunctions, EInt, ELambda, ELet, ESemicolon, EString, EVariable,
+  GenericFunction, GenericType, NotInScope, OccursError, Parameter, TConstructor,
+  TVariable, TypeMismatch,
 }
 import gleam/list
 import gleam/map
@@ -24,15 +24,15 @@ pub fn function_test() {
   should.equal(
     tibe.infer(
       initial_environment(),
-      EFunction(
-        [FunctionArgument("x", None), FunctionArgument("y", None)],
+      ELambda(
+        [Parameter("x", None), Parameter("y", None)],
         None,
         EApply(EVariable("+", []), [EVariable("x", []), EVariable("y", [])]),
       ),
     ),
     Ok(#(
-      EFunction(
-        [FunctionArgument("x", int_type()), FunctionArgument("y", int_type())],
+      ELambda(
+        [Parameter("x", int_type()), Parameter("y", int_type())],
         int_type(),
         EApply(EVariable("+", []), [EVariable("x", []), EVariable("y", [])]),
       ),
@@ -46,18 +46,15 @@ pub fn function_annotated_test() {
   should.equal(
     tibe.infer(
       initial_environment(),
-      EFunction(
-        [
-          FunctionArgument("x", Some(int_type())),
-          FunctionArgument("y", Some(int_type())),
-        ],
+      ELambda(
+        [Parameter("x", Some(int_type())), Parameter("y", Some(int_type()))],
         Some(int_type()),
         EApply(EVariable("+", []), [EVariable("x", []), EVariable("y", [])]),
       ),
     ),
     Ok(#(
-      EFunction(
-        [FunctionArgument("x", int_type()), FunctionArgument("y", int_type())],
+      ELambda(
+        [Parameter("x", int_type()), Parameter("y", int_type())],
         int_type(),
         EApply(EVariable("+", []), [EVariable("x", []), EVariable("y", [])]),
       ),
@@ -130,8 +127,8 @@ pub fn let_apply_test() {
       ELet(
         "singleton",
         None,
-        EFunction(
-          [FunctionArgument("x", None)],
+        ELambda(
+          [Parameter("x", None)],
           None,
           EArray(None, [EVariable("x", [])]),
         ),
@@ -145,8 +142,8 @@ pub fn let_apply_test() {
           "Function1",
           [int_type(), TConstructor("Array", [int_type()])],
         ),
-        EFunction(
-          [FunctionArgument("x", int_type())],
+        ELambda(
+          [Parameter("x", int_type())],
           TConstructor("Array", [int_type()]),
           EArray(int_type(), [EVariable("x", [])]),
         ),
@@ -186,13 +183,13 @@ pub fn e1_test() {
   should.equal(
     tibe.infer(
       initial_environment(),
-      ERecursiveFunctions(
+      EFunctions(
         [
-          RecursiveFunction(
+          GenericFunction(
             "singleton",
             None,
-            EFunction(
-              [FunctionArgument("x", None)],
+            ELambda(
+              [Parameter("x", None)],
               None,
               EArray(None, [EVariable("x", [])]),
             ),
@@ -205,9 +202,9 @@ pub fn e1_test() {
       ),
     ),
     Ok(#(
-      ERecursiveFunctions(
+      EFunctions(
         [
-          RecursiveFunction(
+          GenericFunction(
             "singleton",
             GenericType(
               ["GenericVar3"],
@@ -219,8 +216,8 @@ pub fn e1_test() {
                 ],
               ),
             ),
-            EFunction(
-              [FunctionArgument("x", TConstructor("GenericVar3", []))],
+            ELambda(
+              [Parameter("x", TConstructor("GenericVar3", []))],
               TConstructor("Array", [TConstructor("GenericVar3", [])]),
               EArray(TConstructor("GenericVar3", []), [EVariable("x", [])]),
             ),
@@ -240,13 +237,13 @@ pub fn e2_test() {
   should.equal(
     tibe.infer(
       initial_environment(),
-      ERecursiveFunctions(
+      EFunctions(
         [
-          RecursiveFunction(
+          GenericFunction(
             "even",
             None,
-            EFunction(
-              [FunctionArgument("x", None)],
+            ELambda(
+              [Parameter("x", None)],
               None,
               EApply(
                 EVariable("odd", []),
@@ -254,11 +251,11 @@ pub fn e2_test() {
               ),
             ),
           ),
-          RecursiveFunction(
+          GenericFunction(
             "odd",
             None,
-            EFunction(
-              [FunctionArgument("x", None)],
+            ELambda(
+              [Parameter("x", None)],
               None,
               EApply(
                 EVariable("even", []),
@@ -271,9 +268,9 @@ pub fn e2_test() {
       ),
     ),
     Ok(#(
-      ERecursiveFunctions(
+      EFunctions(
         [
-          RecursiveFunction(
+          GenericFunction(
             "even",
             GenericType(
               ["GenericVar3"],
@@ -282,8 +279,8 @@ pub fn e2_test() {
                 [int_type(), TConstructor("GenericVar3", [])],
               ),
             ),
-            EFunction(
-              [FunctionArgument("x", int_type())],
+            ELambda(
+              [Parameter("x", int_type())],
               TConstructor("GenericVar3", []),
               EApply(
                 EVariable("odd", []),
@@ -291,7 +288,7 @@ pub fn e2_test() {
               ),
             ),
           ),
-          RecursiveFunction(
+          GenericFunction(
             "odd",
             GenericType(
               ["GenericVar3"],
@@ -300,8 +297,8 @@ pub fn e2_test() {
                 [int_type(), TConstructor("GenericVar3", [])],
               ),
             ),
-            EFunction(
-              [FunctionArgument("x", int_type())],
+            ELambda(
+              [Parameter("x", int_type())],
               TConstructor("GenericVar3", []),
               EApply(
                 EVariable("even", []),
@@ -323,20 +320,20 @@ pub fn e3_test() {
   should.equal(
     tibe.infer(
       initial_environment(),
-      ERecursiveFunctions(
+      EFunctions(
         [
-          RecursiveFunction(
+          GenericFunction(
             "even",
             None,
-            EFunction(
-              [FunctionArgument("x", None)],
+            ELambda(
+              [Parameter("x", None)],
               None,
               EApply(
                 EVariable("if", []),
                 [
                   EApply(EVariable("==", []), [EVariable("x", []), EInt(0)]),
-                  EFunction([], None, EVariable("true", [])),
-                  EFunction(
+                  ELambda([], None, EVariable("true", [])),
+                  ELambda(
                     [],
                     None,
                     EApply(
@@ -353,18 +350,18 @@ pub fn e3_test() {
               ),
             ),
           ),
-          RecursiveFunction(
+          GenericFunction(
             "odd",
             None,
-            EFunction(
-              [FunctionArgument("x", None)],
+            ELambda(
+              [Parameter("x", None)],
               None,
               EApply(
                 EVariable("if", []),
                 [
                   EApply(EVariable("==", []), [EVariable("x", []), EInt(0)]),
-                  EFunction([], None, EVariable("false", [])),
-                  EFunction(
+                  ELambda([], None, EVariable("false", [])),
+                  ELambda(
                     [],
                     None,
                     EApply(
@@ -386,23 +383,23 @@ pub fn e3_test() {
       ),
     ),
     Ok(#(
-      ERecursiveFunctions(
+      EFunctions(
         [
-          RecursiveFunction(
+          GenericFunction(
             "even",
             GenericType(
               [],
               TConstructor("Function1", [int_type(), bool_type()]),
             ),
-            EFunction(
-              [FunctionArgument("x", int_type())],
+            ELambda(
+              [Parameter("x", int_type())],
               bool_type(),
               EApply(
                 EVariable("if", [bool_type()]),
                 [
                   EApply(EVariable("==", []), [EVariable("x", []), EInt(0)]),
-                  EFunction([], bool_type(), EVariable("true", [])),
-                  EFunction(
+                  ELambda([], bool_type(), EVariable("true", [])),
+                  ELambda(
                     [],
                     bool_type(),
                     EApply(
@@ -419,21 +416,21 @@ pub fn e3_test() {
               ),
             ),
           ),
-          RecursiveFunction(
+          GenericFunction(
             "odd",
             GenericType(
               [],
               TConstructor("Function1", [int_type(), bool_type()]),
             ),
-            EFunction(
-              [FunctionArgument("x", int_type())],
+            ELambda(
+              [Parameter("x", int_type())],
               bool_type(),
               EApply(
                 EVariable("if", [bool_type()]),
                 [
                   EApply(EVariable("==", []), [EVariable("x", []), EInt(0)]),
-                  EFunction([], bool_type(), EVariable("false", [])),
-                  EFunction(
+                  ELambda([], bool_type(), EVariable("false", [])),
+                  ELambda(
                     [],
                     bool_type(),
                     EApply(
@@ -462,9 +459,9 @@ pub fn e4_test() {
   should.equal(
     tibe.infer(
       initial_environment(),
-      ERecursiveFunctions(
+      EFunctions(
         [
-          RecursiveFunction(
+          GenericFunction(
             "id",
             Some(GenericType(
               ["A"],
@@ -473,16 +470,16 @@ pub fn e4_test() {
                 [TConstructor("A", []), TConstructor("A", [])],
               ),
             )),
-            EFunction([FunctionArgument("x", None)], None, EVariable("x", [])),
+            ELambda([Parameter("x", None)], None, EVariable("x", [])),
           ),
         ],
         EApply(EVariable("id", []), [EString("foo")]),
       ),
     ),
     Ok(#(
-      ERecursiveFunctions(
+      EFunctions(
         [
-          RecursiveFunction(
+          GenericFunction(
             "id",
             GenericType(
               ["A"],
@@ -491,8 +488,8 @@ pub fn e4_test() {
                 [TConstructor("A", []), TConstructor("A", [])],
               ),
             ),
-            EFunction(
-              [FunctionArgument("x", TConstructor("A", []))],
+            ELambda(
+              [Parameter("x", TConstructor("A", []))],
               TConstructor("A", []),
               EVariable("x", []),
             ),
@@ -509,8 +506,8 @@ pub fn e5_test() {
   should.equal(
     tibe.infer(
       initial_environment(),
-      EFunction(
-        [FunctionArgument("x", None)],
+      ELambda(
+        [Parameter("x", None)],
         None,
         EApply(EVariable("x", []), [EVariable("x", [])]),
       ),
@@ -526,16 +523,16 @@ pub fn e6_test() {
   should.equal(
     tibe.infer(
       initial_environment(),
-      ERecursiveFunctions(
+      EFunctions(
         [
-          RecursiveFunction(
+          GenericFunction(
             "compose",
             None,
-            EFunction(
-              [FunctionArgument("f", None), FunctionArgument("g", None)],
+            ELambda(
+              [Parameter("f", None), Parameter("g", None)],
               None,
-              EFunction(
-                [FunctionArgument("x", None)],
+              ELambda(
+                [Parameter("x", None)],
                 None,
                 EApply(
                   EVariable("f", []),
@@ -549,9 +546,9 @@ pub fn e6_test() {
       ),
     ),
     Ok(#(
-      ERecursiveFunctions(
+      EFunctions(
         [
-          RecursiveFunction(
+          GenericFunction(
             "compose",
             GenericType(
               ["GenericVar5", "GenericVar6", "GenericVar7"],
@@ -582,9 +579,9 @@ pub fn e6_test() {
                 ],
               ),
             ),
-            EFunction(
+            ELambda(
               [
-                FunctionArgument(
+                Parameter(
                   "f",
                   TConstructor(
                     "Function1",
@@ -594,7 +591,7 @@ pub fn e6_test() {
                     ],
                   ),
                 ),
-                FunctionArgument(
+                Parameter(
                   "g",
                   TConstructor(
                     "Function1",
@@ -612,8 +609,8 @@ pub fn e6_test() {
                   TConstructor("GenericVar5", []),
                 ],
               ),
-              EFunction(
-                [FunctionArgument("x", TConstructor("GenericVar6", []))],
+              ELambda(
+                [Parameter("x", TConstructor("GenericVar6", []))],
                 TConstructor("GenericVar5", []),
                 EApply(
                   EVariable("f", []),

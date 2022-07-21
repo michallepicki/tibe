@@ -15,20 +15,27 @@ import gleam/set.{Set}
 /// An Expression is the input of our typechecker program.
 /// In `infer_type` it is processed to Types, Substutions, Environment mappings,
 /// and Constraints.
+///
+/// It is parametrized either by Option(GenericType) and Option(Type)
+/// (optional type annotations), and after typechecking it is parametrized by
+/// GenericType and Type.
 pub type Expression(g, t) {
   /// A list of functions that may potentially call each other
   /// and are in scope in `body`.
-  ERecursiveFunctions(
-    functions: List(RecursiveFunction(g, t)),
-    body: Expression(g, t),
-  )
-  /// A function is defined by a list of argument names and the expression
-  /// it evaluates to (function body).
-  /// A function can optionally have its return type or argument types
+  ///
+  /// In a real programming language, recursive functions could be declared with
+  /// `let rec`, for example. The body is not that important, it's useful here
+  /// as an example usage of those functions to demonstrate how typechecking
+  /// works.
+  EFunctions(functions: List(GenericFunction(g, t)), body: Expression(g, t))
+  /// A lambda (local function) is defined by a list of parameter names
+  /// and the expression it evaluates to (body).
+  ///
+  /// A lambda can optionally have its return type or parameter types
   /// annotated before type checking. These fields also hold inferred types
   /// after type checking.
-  EFunction(
-    arguments: List(FunctionArgument(t)),
+  ELambda(
+    parameters: List(Parameter(t)),
     return_type: t,
     body: Expression(g, t),
   )
@@ -36,6 +43,14 @@ pub type Expression(g, t) {
   /// which will be called, and the argument expressions being passed
   /// to this function.
   EApply(function: Expression(g, t), arguments: List(Expression(g, t)))
+  /// An expression variable is a name that is bound to some value.
+  /// This can be a function argument, a let binding, or some predefined value
+  /// like the "+" abstraction.
+  ///
+  /// Because the type of the value this name refers to can be generic,
+  /// after typechecking the variable will hold a list of types used
+  /// to instantiate this type.
+  EVariable(name: String, generics: List(Type))
   /// A let expression allows to bind some value to a name, so that it can be
   /// accessed in the current scope (inside of let's body).
   /// It can have its type optionally annotated.
@@ -46,10 +61,6 @@ pub type Expression(g, t) {
     value: Expression(g, t),
     body: Expression(g, t),
   )
-  /// An expression variable is a name that is bound to some value.
-  /// This can be a function argument, a let binding, or some predefined value
-  /// like the "+" abstraction.
-  EVariable(name: String, generics: List(Type))
   /// Literal integer expression
   EInt(value: Int)
   /// Literal string expression
@@ -57,35 +68,48 @@ pub type Expression(g, t) {
   /// Literal array expression. Can have its item types optionally annotated
   /// (in `item_type`). This is also where inferred item type gets set.
   EArray(item_type: t, items: List(Expression(g, t)))
+  /// By having a Semicolon expression, expressions can be joined together
+  /// into a sequential list without a need for introducing bogus let bindigs.
   ESemicolon(before: Expression(g, t), after: Expression(g, t))
 }
 
-pub type RecursiveFunction(g, t) {
-  RecursiveFunction(name: String, function_type: g, lambda: Expression(g, t))
+/// This is a (potentially) generic and/or recursive function
+/// used in the EFunctions expression. It is defined by its name,
+/// optional generic type annotation and its lambda expression definition.
+/// After typechecking the function_type field will hold its inferred type.
+pub type GenericFunction(g, t) {
+  GenericFunction(name: String, function_type: g, lambda: Expression(g, t))
 }
 
-pub type FunctionArgument(t) {
-  FunctionArgument(name: String, argument_type: t)
-}
-
+/// A generic type holds a list of its generic type parameter names
+/// (e.g. A, B, etc) and its uninstantiated type that refers to those names.
 pub type GenericType {
   GenericType(generics: List(String), uninstantiated_type: Type)
 }
 
-/// The Type type represents the types of our small lanuguage.
+/// A parameter is a helper type used to define ELambda.
+pub type Parameter(t) {
+  Parameter(name: String, parameter_type: t)
+}
+
+/// The Type type represents the types of our small language.
 ///
 /// It is used internally starting from the input (expected type)
 /// of `infer_type` throughout the constraint solving (unification)
 /// to substitution. At the end of our typechecker program, Expressions
-/// have their type fields filled in (we go from Expression(Option(Type))
-/// to Expression(Type).
+/// have their type fields filled in
+/// (we go from Expression(Option(GenericType), Option(Type))
+/// to Expression(GenericType, Type).
 pub type Type {
-  /// A TConstructor is a concrete / ordinary / monomorphic type.
+  /// A TConstructor is a concrete / ordinary / monomorphic type,
+  /// or a placeholder referring to a generic type parameter with the same name.
   /// This is what we want our types to look like after type inference.
-  /// An ordinary type is defined by a type name and a list of type parameters.
+  /// It is defined by a type name and a list of type parameters.
   /// For example, it can be a simple type like Int with no type parameters,
   /// or a Function1 type with 2 type parameters: its argument type
   /// and return type.
+  ///
+  /// In Ahnfelt's tutorial type_parameters field is called generics.
   TConstructor(name: String, type_parameters: List(Type))
   /// A type variable is an internal typechecker representation
   /// for a non concrete type. It was not yet inferred or substituted
@@ -93,13 +117,9 @@ pub type Type {
   TVariable(index: Int)
 }
 
-pub type GenericTypeAnnotation =
-  Option(GenericType)
-
-pub type TypeAnnotation =
-  Option(Type)
-
 /// The context holds all data useful for type checking collected along the way.
+/// In Ahnfelt's tutorial it is not needed because it uses mutation
+/// and class-local variables.
 pub type Context {
   Context(
     environment: Environment,
@@ -110,6 +130,7 @@ pub type Context {
 
 /// The environment maps bound value names to their types
 /// (either concrete types, or just type variables).
+/// For non-generic types, their generics list is just empty.
 pub type Environment =
   Map(String, GenericType)
 
@@ -124,11 +145,12 @@ pub type Constraint {
 pub type TypeConstraints =
   List(Constraint)
 
-/// The Substitution map holds the mapping from type variables indexes,
-/// to their concrete type values. Initially for each type variable
-/// it points to itself. As the type constraints get solved in unification,
-/// it points to more concrete types for them.
-/// At the end of type checking it's used to fill in the untyped expression
+/// Initially for each type variable index, the Substitution map
+/// points to itself (a TVariable with the same index).
+/// As the type constraints get solved in unification,
+/// it points to more concrete types for them (directly or indirectly
+/// through pointing to other type variables).
+/// At the end of type checking. it's used to fill in the untyped expression
 /// with types information.
 pub type Substitution =
   Map(Int, Type)
@@ -139,13 +161,14 @@ pub type TypeCheckError {
   NotInScope(name: String)
 }
 
-pub fn main() {
-  Nil
-}
-
+/// This is the entry point of our typechecker program.
+/// Given an initial environment (with some constants or functions)
+/// and an untyped (optionally annotated) expression,
+/// it returns a typed expression and its value type,
+/// or a typechecking error.
 pub fn infer(
   environment: Environment,
-  expression: Expression(GenericTypeAnnotation, TypeAnnotation),
+  expression: Expression(Option(GenericType), Option(Type)),
 ) -> Result(#(Expression(GenericType, Type), Type), TypeCheckError) {
   let context =
     Context(
@@ -162,18 +185,27 @@ pub fn infer(
   ))
 }
 
-/// A function which takes an expression and its expected type
-/// (to infer without checking, pass a fresh type variable as expected_type)
-/// and recursively turns it into (potentially unsolved) type variables,
-/// introducing new expression variables and checking that referenced expression
-/// variables exist along the way.
+/// A function which takes an expression and its expected annotated type
+/// and recursively turns it into (potentially unsolved) type variables.
+/// To infer without checking, pass a fresh type variable as expected_type.
+/// Along the way it is introducing new functions or let bindings
+/// into the Environment, making sure that they don't escape the scope
+/// in which they are declared, and checking that referenced name bindings
+/// exist in the Environment.
 pub fn infer_type(
-  expression: Expression(GenericTypeAnnotation, TypeAnnotation),
+  expression: Expression(Option(GenericType), Option(Type)),
   expected_type: Type,
   context: Context,
 ) -> Result(#(Expression(GenericType, Type), Context), TypeCheckError) {
   case expression {
-    ERecursiveFunctions(functions: functions, body: body) -> {
+    EFunctions(functions: functions, body: body) -> {
+      // For a group of (potentially) recursive functions,
+      // when checking one of them, a different one (or itself) can be called
+      // in its lambda body. So, to have them available when checking,
+      // we first go through all functions and add their name with type
+      // to the environment. The type is either an annotation (when present),
+      // or a fresh type variable.
+      // We also keep track of which functions had a type annotation.
       let #(recursive_environment, annotations_tracker, context) =
         list.fold(
           functions,
@@ -202,6 +234,9 @@ pub fn infer_type(
             )
           },
         )
+      // For each function, we try to infer the type of its definition,
+      // and accumulate the typed functions into a list. When inference
+      // or checking fails in this process, we return the error.
       try #(ungeneralized_functions_reversed, recursive_functions_context) =
         list.try_fold(
           functions,
@@ -218,7 +253,7 @@ pub fn infer_type(
               )
             Ok(#(
               [
-                RecursiveFunction(
+                GenericFunction(
                   name: function.name,
                   function_type: generic_function_type,
                   lambda: lambda,
@@ -231,6 +266,10 @@ pub fn infer_type(
         )
       let ungeneralized_functions =
         list.reverse(ungeneralized_functions_reversed)
+      // We want to find the functions which don't have a type annotation
+      // but are generic. To do that, we first try to solve type constraints
+      // to confirm that the functions can typecheck at all. If they can't,
+      // we return an error here.
       try recursive_functions_context =
         solve_constraints(recursive_functions_context)
       let new_functions =
@@ -244,6 +283,8 @@ pub fn infer_type(
             case had_annotation {
               True -> function
               False -> {
+                // If a function didn't have a type annotation, it could still
+                // be generic, so we attempt to generalize it.
                 let function_type = generic_function_type.uninstantiated_type
                 let #(new_type_annotation, new_lambda) =
                   generalize(
@@ -252,7 +293,7 @@ pub fn infer_type(
                     function_type,
                     function.lambda,
                   )
-                RecursiveFunction(
+                GenericFunction(
                   name: function.name,
                   function_type: new_type_annotation,
                   lambda: new_lambda,
@@ -261,6 +302,10 @@ pub fn infer_type(
             }
           },
         )
+      // Because some function types could have been generalized,
+      // we prepare a new environment to check the body expression
+      // (similar to recursive_functions_context
+      // but with lists of generics filled in).
       let new_environment =
         list.fold(
           new_functions,
@@ -269,53 +314,71 @@ pub fn infer_type(
             map.insert(acc, function.name, function.function_type)
           },
         )
-      let context =
+      let new_context =
         Context(..recursive_functions_context, environment: new_environment)
-      try #(body, context) = infer_type(body, expected_type, context)
-      Ok(#(ERecursiveFunctions(functions: new_functions, body: body), context))
+      // We try to infer / check the body expression (or return an error).
+      try #(body, body_context) = infer_type(body, expected_type, new_context)
+      // We returned the typed EFunctions expression.
+      // Because in our case the recursive functions were only in scope
+      // for the body, and whole EFunctions expression evaluates to body,
+      // we reset the environment to not have them.
+      Ok(#(
+        EFunctions(functions: new_functions, body: body),
+        Context(..body_context, environment: context.environment),
+      ))
     }
-    EFunction(arguments: args, return_type: return_type, body: body) -> {
+    ELambda(parameters: parameters, return_type: return_type, body: body) -> {
       let #(return_type, context) = type_or_fresh_variable(return_type, context)
-      let #(arguments_reversed, arg_types_reversed, context) =
+      // We add lambda parameters to the environment for checking the body.
+      // We also prepare a list of their types for convenience.
+      let #(parameters_reversed, parameter_types_reversed, body_context) =
         list.fold(
-          args,
+          parameters,
           #([], [], context),
-          fn(acc, arg) {
-            let #(arguments_acc, arg_types_acc, context) = acc
-            let FunctionArgument(name: arg_name, argument_type: argument_type) =
-              arg
-            let #(t, context) = type_or_fresh_variable(argument_type, context)
+          fn(acc, parameter) {
+            let #(parameters_acc, parameter_types_acc, context) = acc
+            let Parameter(name: parameter_name, parameter_type: parameter_type) =
+              parameter
+            let #(t, context) = type_or_fresh_variable(parameter_type, context)
             let context =
               Context(
                 ..context,
                 environment: map.insert(
                   context.environment,
-                  arg_name,
+                  parameter_name,
                   GenericType(generics: [], uninstantiated_type: t),
                 ),
               )
             #(
               [
-                FunctionArgument(name: arg_name, argument_type: t),
-                ..arguments_acc
+                Parameter(name: parameter_name, parameter_type: t),
+                ..parameters_acc
               ],
-              [t, ..arg_types_acc],
+              [t, ..parameter_types_acc],
               context,
             )
           },
         )
-      try #(body, context) = infer_type(body, return_type, context)
-      let type_parameters = list.reverse([return_type, ..arg_types_reversed])
+      // We try to infer / check the type of lambda body, or return an error
+      // if it fails.
+      try #(body, body_context) = infer_type(body, return_type, body_context)
+      let type_parameters =
+        list.reverse([return_type, ..parameter_types_reversed])
       let type_name =
         string.join(
-          ["Function", int.to_string(list.length(arg_types_reversed))],
+          ["Function", int.to_string(list.length(parameter_types_reversed))],
           with: "",
         )
       let t = TConstructor(name: type_name, type_parameters: type_parameters)
-      let context = constrain_type(expected_type, t, context)
+      let context =
+        constrain_type(
+          expected_type,
+          t,
+          Context(..body_context, environment: context.environment),
+        )
       Ok(#(
-        EFunction(
-          arguments: list.reverse(arguments_reversed),
+        ELambda(
+          parameters: list.reverse(parameters_reversed),
           return_type: return_type,
           body: body,
         ),
@@ -342,7 +405,14 @@ pub fn infer_type(
         list.reverse([expected_type, ..argument_types_reversed])
       let function_type =
         TConstructor(name: type_name, type_parameters: type_parameters)
+      // We infer / check the type of the called function
+      // (which could be just a function name, but could be an in-line lambda
+      // or another function call that returns a lambda), and make sure to pass
+      // the type of expected function as expected_type. We return an error
+      // if it fails.
       try #(function, context) = infer_type(function, function_type, context)
+      // For each function argument, we try to infer its type
+      // (or return an error).
       try #(arguments_reversed, context) =
         arguments
         |> list.zip(list.reverse(argument_types_reversed))
@@ -363,8 +433,10 @@ pub fn infer_type(
     }
     ELet(name: name, value_type: value_type, value: value, body: body) -> {
       let #(value_type, context) = type_or_fresh_variable(value_type, context)
+      // We infer / check the type of binding value (or return an error),
+      // and add it to the environment for inferring / checking the body.
       try #(value, context) = infer_type(value, value_type, context)
-      let context =
+      let body_context =
         Context(
           ..context,
           environment: map.insert(
@@ -373,10 +445,10 @@ pub fn infer_type(
             GenericType(generics: [], uninstantiated_type: value_type),
           ),
         )
-      try #(body, context) = infer_type(body, expected_type, context)
+      try #(body, body_context) = infer_type(body, expected_type, body_context)
       Ok(#(
         ELet(name: name, value_type: value_type, value: value, body: body),
-        context,
+        Context(..body_context, environment: context.environment),
       ))
     }
     EVariable(name: x, generics: annotated_generics) ->
@@ -715,12 +787,12 @@ pub fn substitute_expression(
   substitution: Substitution,
 ) -> Expression(GenericType, Type) {
   case expression {
-    ERecursiveFunctions(functions: functions, body: body) -> {
+    EFunctions(functions: functions, body: body) -> {
       let functions =
         list.map(
           functions,
           fn(function) {
-            let RecursiveFunction(
+            let GenericFunction(
               name: name,
               function_type: function_type,
               lambda: lambda,
@@ -734,7 +806,7 @@ pub fn substitute_expression(
                 ),
               )
             let lambda = substitute_expression(lambda, substitution)
-            RecursiveFunction(
+            GenericFunction(
               name: name,
               function_type: function_type,
               lambda: lambda,
@@ -742,22 +814,22 @@ pub fn substitute_expression(
           },
         )
       let body = substitute_expression(body, substitution)
-      ERecursiveFunctions(functions: functions, body: body)
+      EFunctions(functions: functions, body: body)
     }
-    EFunction(arguments: arguments, return_type: return_type, body: body) -> {
+    ELambda(parameters: parameters, return_type: return_type, body: body) -> {
       let return_type = substitute(return_type, substitution)
-      let arguments =
+      let parameters =
         list.map(
-          arguments,
-          fn(argument) {
-            FunctionArgument(
-              ..argument,
-              argument_type: substitute(argument.argument_type, substitution),
+          parameters,
+          fn(parameter) {
+            Parameter(
+              ..parameter,
+              parameter_type: substitute(parameter.parameter_type, substitution),
             )
           },
         )
       let body = substitute_expression(body, substitution)
-      EFunction(arguments: arguments, return_type: return_type, body: body)
+      ELambda(parameters: parameters, return_type: return_type, body: body)
     }
     EApply(function: function, arguments: arguments) -> {
       let function = substitute_expression(function, substitution)
@@ -805,4 +877,8 @@ pub fn substitute(t: Type, substitution: Substitution) -> Type {
         type_parameters: list.map(generics, substitute(_, substitution)),
       )
   }
+}
+
+pub fn main() {
+  Nil
 }
