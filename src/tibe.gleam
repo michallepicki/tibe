@@ -235,8 +235,9 @@ pub fn infer_type(
           },
         )
       // For each function, we try to infer the type of its definition,
-      // and accumulate the typed functions into a list. When inference
-      // or checking fails in this process, we return the error.
+      // and accumulate the "typed" (likely still with type variables)
+      // functions into a list. When inference or checking fails
+      // in this process, we return the error.
       try #(ungeneralized_functions_reversed, recursive_functions_context) =
         list.try_fold(
           functions,
@@ -304,8 +305,8 @@ pub fn infer_type(
         )
       // Because some function types could have been generalized,
       // we prepare a new environment to check the body expression
-      // (similar to recursive_functions_context
-      // but with lists of generics filled in).
+      // (similar to recursive_functions_context but with generic functions
+      // having their lists of generics in generic type filled in).
       let new_environment =
         list.fold(
           new_functions,
@@ -362,6 +363,10 @@ pub fn infer_type(
       // We try to infer / check the type of lambda body, or return an error
       // if it fails.
       try #(body, body_context) = infer_type(body, return_type, body_context)
+      // We constrain the the expected type (which comes either from
+      // user's function annotation or EApply function call) with inferred
+      // function type. To do that, we first glue together parameter and return
+      // types into the expected format.
       let type_parameters =
         list.reverse([return_type, ..parameter_types_reversed])
       let type_name =
@@ -376,6 +381,7 @@ pub fn infer_type(
           t,
           Context(..body_context, environment: context.environment),
         )
+      // We return the typed lambda expression.
       Ok(#(
         ELambda(
           parameters: list.reverse(parameters_reversed),
@@ -386,6 +392,9 @@ pub fn infer_type(
       ))
     }
     EApply(function: function, arguments: arguments) -> {
+      // We prepare the expected function type using type variables
+      // for each passed argument and expected_type (type of the whole EApply
+      // expression) as the function call return type.
       let #(argument_types_reversed, context) =
         list.fold(
           arguments,
@@ -412,7 +421,10 @@ pub fn infer_type(
       // if it fails.
       try #(function, context) = infer_type(function, function_type, context)
       // For each function argument, we try to infer its type
-      // (or return an error).
+      // (or return an error). I think alternatively we could do that earlier
+      // before inferring the type of the called function? The order may affect
+      // which error would get returned in case of mismatched function and/or
+      // parameter/argument types.
       try #(arguments_reversed, context) =
         arguments
         |> list.zip(list.reverse(argument_types_reversed))
@@ -426,6 +438,7 @@ pub fn infer_type(
             Ok(#([argument, ..arguments_acc], context))
           },
         )
+      // We return the typed function call expression.
       Ok(#(
         EApply(function: function, arguments: list.reverse(arguments_reversed)),
         context,
@@ -445,18 +458,27 @@ pub fn infer_type(
             GenericType(generics: [], uninstantiated_type: value_type),
           ),
         )
+      // We try to infer the type of the let body (or return an error).
       try #(body, body_context) = infer_type(body, expected_type, body_context)
+      // We return the typed expression (without the name present in the
+      // environment, since its scope is just the let body).
       Ok(#(
         ELet(name: name, value_type: value_type, value: value, body: body),
         Context(..body_context, environment: context.environment),
       ))
     }
     EVariable(name: x, generics: annotated_generics) ->
+      // We look up the variable name in the environment (or return an error).
       case map.get(context.environment, x) {
+        Error(_) -> Error(NotInScope(x))
         Ok(GenericType(
           generics: generics,
           uninstantiated_type: uninstantiated_type,
         )) -> {
+          // Since the variable name can refer to a value of generic type,
+          // and to type check the usage of this variable
+          // we will need a concrete type, we prepare a map from each generic
+          // type placeholder (like A, B etc) to a type variable.
           let #(new_generics_reversed, instantiation, context) =
             list.fold(
               generics,
@@ -469,13 +491,23 @@ pub fn infer_type(
               },
             )
           let new_generics = list.reverse(new_generics_reversed)
+          // We call a helper function to replace the generics in the type
+          // fetched from the environment (type placeholders like A, B etc)
+          // with previously prepared type variables. The result is the type
+          // of our variable.
           let variable_type =
             instantiate(instantiation, uninstantiated_type, context)
           let context = case annotated_generics {
             [] -> context
             annotated_generics -> {
+              // If the user supplied annotations for instantiating generics
+              // on the variable usage, we make sure they provided the correct
+              // number of generic type annotations.
+              // TODO: this should be another possible error to be returned.
               assert True =
                 list.length(annotated_generics) == list.length(new_generics)
+              // We constrain our type variables (replacements for generic
+              // type placeholders) with the types the user provided.
               list.zip(annotated_generics, new_generics)
               |> list.fold(
                 context,
@@ -486,23 +518,34 @@ pub fn infer_type(
               )
             }
           }
+          // We constrain the instantiated type of our variable
+          // with the type this variable usage is expected to have.
           let context = constrain_type(expected_type, variable_type, context)
+          // We return the variable expression with type variables
+          // in place of generics.
           Ok(#(EVariable(name: x, generics: new_generics), context))
         }
-        Error(_) -> Error(NotInScope(x))
       }
     EInt(value: v) ->
+      // For Integer literal expressions all we need to do is constrain
+      // the expected type with the Int type.
       Ok(#(
         EInt(value: v),
         constrain_type(expected_type, TConstructor("Int", []), context),
       ))
     EString(value: v) ->
+      // Same as EInt
       Ok(#(
         EString(value: v),
         constrain_type(expected_type, TConstructor("String", []), context),
       ))
     EArray(item_type: item_type, items: items) -> {
+      // Each item in an array will need to have the same type,
+      // so if the type is not annotated we create a new variable
+      // for checking that.
       let #(item_type, context) = type_or_fresh_variable(item_type, context)
+      // For each item in the array we try to infer its type passing the
+      // expected item type (or return an error).
       try #(items_reversed, context) =
         list.try_fold(
           items,
@@ -513,6 +556,7 @@ pub fn infer_type(
             Ok(#([item, ..items_acc], context))
           },
         )
+      // We return the typed array expression.
       Ok(#(
         EArray(item_type: item_type, items: list.reverse(items_reversed)),
         constrain_type(
@@ -524,13 +568,19 @@ pub fn infer_type(
     }
     ESemicolon(before: before, after: after) -> {
       let #(before_type, context) = fresh_type_variable(context)
+      // We only care about the type of the last expression
+      // in an expressions sequence, so for checking the "before" expression
+      // we pass in a fresh type variable as expected type.
       try #(new_before, context) = infer_type(before, before_type, context)
       try #(new_after, context) = infer_type(after, expected_type, context)
+      // We return the typed expressions sequence.
       Ok(#(ESemicolon(before: new_before, after: new_after), context))
     }
   }
 }
 
+// A helper function used to get a type annotation if the user supplied it,
+// or generate a fresh type variable if not.
 pub fn type_or_fresh_variable(
   maybe_type_annotation: Option(Type),
   context: Context,
@@ -551,6 +601,8 @@ pub fn fresh_type_variable(context: Context) -> #(Type, Context) {
   #(t, context)
 }
 
+// A helper function used to add an equality constraint between two types
+// to the context.
 pub fn constrain_type(t1: Type, t2: Type, context: Context) -> Context {
   Context(
     ..context,
@@ -558,6 +610,9 @@ pub fn constrain_type(t1: Type, t2: Type, context: Context) -> Context {
   )
 }
 
+// A helper function used to replace the generic type placeholders
+// (like A, B etc) with some type according to the instantiation map.
+// It recurses to do that everywhere in the type.
 fn instantiate(
   instantiation: Map(String, Type),
   t: Type,
@@ -595,6 +650,8 @@ fn instantiate(
   }
 }
 
+// A helper function used to replace some type variables inside a type
+// with generic type placeholders (like A, B, C etc) where possible.
 fn generalize(
   environment: Environment,
   substitution: Substitution,
@@ -617,6 +674,7 @@ fn generalize(
       #([], substitution),
       fn(acc, i) {
         let #(names, substitution) = acc
+        // TODO: this should generate names like A, B, C etc
         let name = string.concat(["GenericVar", int.to_string(i)])
         #(
           [name, ..names],
