@@ -16,7 +16,7 @@ import gleam/set.{Set}
 /// In `infer_type` it is processed to Types, Substutions, Environment mappings,
 /// and Constraints.
 ///
-/// It is parametrized either by Option(GenericType) and Option(Type)
+/// It is parametrized by Option(GenericType) and Option(Type)
 /// (optional type annotations), and after typechecking it is parametrized by
 /// GenericType and Type.
 pub type Expression(g, t) {
