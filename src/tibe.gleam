@@ -9,6 +9,7 @@ import gleam/string
 import gleam/int
 import gleam/option.{None, Option, Some}
 import gleam/set.{Set}
+import gleam/result.{try}
 
 /// AST type representing our language.
 ///
@@ -177,8 +178,8 @@ pub fn infer(
       substitution: map.new(),
     )
   let #(t, context) = fresh_type_variable(context)
-  try #(expression, context) = infer_type(expression, t, context)
-  try context = solve_constraints(context)
+  use #(expression, context) <- try(infer_type(expression, t, context))
+  use context <- try(solve_constraints(context))
   Ok(#(
     substitute_expression(expression, context.substitution),
     substitute(t, context.substitution),
@@ -212,7 +213,9 @@ pub fn infer_type(
           #(context.environment, map.new(), context),
           fn(acc, function) {
             let #(recursive_environment, annotations_tracker, context) = acc
-            let #(function_type, had_annotation, context) = case function.function_type {
+            let #(function_type, had_annotation, context) = case
+              function.function_type
+            {
               None -> {
                 let #(t, context) = fresh_type_variable(context)
                 #(
@@ -238,48 +241,47 @@ pub fn infer_type(
       // and accumulate the "typed" (likely still with type variables)
       // functions into a list. When inference or checking fails
       // in this process, we return the error.
-      try #(ungeneralized_functions_reversed, recursive_functions_context) =
-        list.try_fold(
-          functions,
-          #([], context),
-          fn(acc, function) {
-            let #(functions, context) = acc
-            assert Ok(generic_function_type) =
-              map.get(recursive_environment, function.name)
-            try #(lambda, context) =
-              infer_type(
-                function.lambda,
-                generic_function_type.uninstantiated_type,
-                Context(..context, environment: recursive_environment),
-              )
-            Ok(#(
-              [
-                GenericFunction(
-                  name: function.name,
-                  function_type: generic_function_type,
-                  lambda: lambda,
-                ),
-                ..functions
-              ],
-              context,
-            ))
-          },
-        )
+      use #(ungeneralized_functions_reversed, recursive_functions_context) <- try(list.try_fold(
+        functions,
+        #([], context),
+        fn(acc, function) {
+          let #(functions, context) = acc
+          let assert Ok(generic_function_type) =
+            map.get(recursive_environment, function.name)
+          use #(lambda, context) <- try(infer_type(
+            function.lambda,
+            generic_function_type.uninstantiated_type,
+            Context(..context, environment: recursive_environment),
+          ))
+          Ok(#(
+            [
+              GenericFunction(
+                name: function.name,
+                function_type: generic_function_type,
+                lambda: lambda,
+              ),
+              ..functions
+            ],
+            context,
+          ))
+        },
+      ))
       let ungeneralized_functions =
         list.reverse(ungeneralized_functions_reversed)
       // We want to find the functions which don't have a type annotation
       // but are generic. To do that, we first try to solve type constraints
       // to confirm that the functions can typecheck at all. If they can't,
       // we return an error here.
-      try recursive_functions_context =
-        solve_constraints(recursive_functions_context)
+      use recursive_functions_context <- try(solve_constraints(
+        recursive_functions_context,
+      ))
       let new_functions =
         list.map(
           ungeneralized_functions,
           fn(function) {
-            assert Ok(generic_function_type) =
+            let assert Ok(generic_function_type) =
               map.get(recursive_environment, function.name)
-            assert Ok(had_annotation) =
+            let assert Ok(had_annotation) =
               map.get(annotations_tracker, function.name)
             case had_annotation {
               True -> function
@@ -318,7 +320,11 @@ pub fn infer_type(
       let new_context =
         Context(..recursive_functions_context, environment: new_environment)
       // We try to infer / check the body expression (or return an error).
-      try #(body, body_context) = infer_type(body, expected_type, new_context)
+      use #(body, body_context) <- try(infer_type(
+        body,
+        expected_type,
+        new_context,
+      ))
       // We returned the typed EFunctions expression.
       // Because in our case the recursive functions were only in scope
       // for the body, and whole EFunctions expression evaluates to body,
@@ -362,7 +368,11 @@ pub fn infer_type(
         )
       // We try to infer / check the type of lambda body, or return an error
       // if it fails.
-      try #(body, body_context) = infer_type(body, return_type, body_context)
+      use #(body, body_context) <- try(infer_type(
+        body,
+        return_type,
+        body_context,
+      ))
       // We constrain the the expected type (which comes either from
       // user's function annotation or EApply function call) with inferred
       // function type. To do that, we first glue together parameter and return
@@ -419,13 +429,17 @@ pub fn infer_type(
       // or another function call that returns a lambda), and make sure to pass
       // the type of expected function as expected_type. We return an error
       // if it fails.
-      try #(function, context) = infer_type(function, function_type, context)
+      use #(function, context) <- try(infer_type(
+        function,
+        function_type,
+        context,
+      ))
       // For each function argument, we try to infer its type
       // (or return an error). I think alternatively we could do that earlier
       // before inferring the type of the called function? The order may affect
       // which error would get returned in case of mismatched function and/or
       // parameter/argument types.
-      try #(arguments_reversed, context) =
+      use #(arguments_reversed, context) <- try(
         arguments
         |> list.zip(list.reverse(argument_types_reversed))
         |> list.try_fold(
@@ -433,11 +447,15 @@ pub fn infer_type(
           fn(acc, argument_with_type) {
             let #(arguments_acc, context) = acc
             let #(argument, argument_type) = argument_with_type
-            try #(argument, context) =
-              infer_type(argument, argument_type, context)
+            use #(argument, context) <- try(infer_type(
+              argument,
+              argument_type,
+              context,
+            ))
             Ok(#([argument, ..arguments_acc], context))
           },
-        )
+        ),
+      )
       // We return the typed function call expression.
       Ok(#(
         EApply(function: function, arguments: list.reverse(arguments_reversed)),
@@ -448,7 +466,7 @@ pub fn infer_type(
       let #(value_type, context) = type_or_fresh_variable(value_type, context)
       // We infer / check the type of binding value (or return an error),
       // and add it to the environment for inferring / checking the body.
-      try #(value, context) = infer_type(value, value_type, context)
+      use #(value, context) <- try(infer_type(value, value_type, context))
       let body_context =
         Context(
           ..context,
@@ -459,7 +477,11 @@ pub fn infer_type(
           ),
         )
       // We try to infer the type of the let body (or return an error).
-      try #(body, body_context) = infer_type(body, expected_type, body_context)
+      use #(body, body_context) <- try(infer_type(
+        body,
+        expected_type,
+        body_context,
+      ))
       // We return the typed expression (without the name present in the
       // environment, since its scope is just the let body).
       Ok(#(
@@ -504,7 +526,7 @@ pub fn infer_type(
               // on the variable usage, we make sure they provided the correct
               // number of generic type annotations.
               // TODO: this should be another possible error to be returned.
-              assert True =
+              let assert True =
                 list.length(annotated_generics) == list.length(new_generics)
               // We constrain our type variables (replacements for generic
               // type placeholders) with the types the user provided.
@@ -546,16 +568,15 @@ pub fn infer_type(
       let #(item_type, context) = type_or_fresh_variable(item_type, context)
       // For each item in the array we try to infer its type passing the
       // expected item type (or return an error).
-      try #(items_reversed, context) =
-        list.try_fold(
-          items,
-          #([], context),
-          fn(acc, item) {
-            let #(items_acc, context) = acc
-            try #(item, context) = infer_type(item, item_type, context)
-            Ok(#([item, ..items_acc], context))
-          },
-        )
+      use #(items_reversed, context) <- try(list.try_fold(
+        items,
+        #([], context),
+        fn(acc, item) {
+          let #(items_acc, context) = acc
+          use #(item, context) <- try(infer_type(item, item_type, context))
+          Ok(#([item, ..items_acc], context))
+        },
+      ))
       // We return the typed array expression.
       Ok(#(
         EArray(item_type: item_type, items: list.reverse(items_reversed)),
@@ -571,8 +592,8 @@ pub fn infer_type(
       // We only care about the type of the last expression
       // in an expressions sequence, so for checking the "before" expression
       // we pass in a fresh type variable as expected type.
-      try #(new_before, context) = infer_type(before, before_type, context)
-      try #(new_after, context) = infer_type(after, expected_type, context)
+      use #(new_before, context) <- try(infer_type(before, before_type, context))
+      use #(new_after, context) <- try(infer_type(after, expected_type, context))
       // We return the typed expressions sequence.
       Ok(#(ESemicolon(before: new_before, after: new_after), context))
     }
@@ -631,7 +652,7 @@ fn instantiate(
         TConstructor(name: name, type_parameters: type_parameters) ->
           case map.get(instantiation, name) {
             Ok(instantiation_type) -> {
-              assert True = list.length(type_parameters) == 0
+              let assert True = type_parameters == []
               instantiation_type
             }
             _ ->
@@ -743,16 +764,17 @@ fn free_in_environment(
 /// A function which "solves" (and gets rid of) type constraints
 /// using unification, or returns unification errors.
 pub fn solve_constraints(context: Context) -> Result(Context, TypeCheckError) {
-  try substitution =
+  use substitution <- try(
     context.type_constraints
     |> list.reverse()
     |> list.try_fold(
       context.substitution,
       fn(substitution, constraint) {
-        assert CEquality(t1, t2) = constraint
+        let assert CEquality(t1, t2) = constraint
         unify(t1, t2, substitution)
       },
-    )
+    ),
+  )
   Ok(Context(..context, type_constraints: [], substitution: substitution))
 }
 
@@ -812,7 +834,7 @@ pub fn unify(
 pub fn follow(to_follow: Type, substitution: Substitution) -> Result(Type, Nil) {
   case to_follow {
     TVariable(index: i) -> {
-      assert Ok(t) = map.get(substitution, i)
+      let assert Ok(t) = map.get(substitution, i)
       case t != to_follow {
         True -> Ok(t)
         False -> Error(Nil)

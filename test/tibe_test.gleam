@@ -1,9 +1,9 @@
 import gleeunit
 import gleeunit/should
 import tibe.{
-  EApply, EArray, EFunctions, EInt, ELambda, ELet, ESemicolon, EString, EVariable,
-  GenericFunction, GenericType, NotInScope, OccursError, Parameter, TConstructor,
-  TVariable, TypeMismatch,
+  EApply, EArray, EFunctions, EInt, ELambda, ELet, ESemicolon, EString,
+  EVariable, GenericFunction, GenericType, NotInScope, OccursError, Parameter,
+  TConstructor, TVariable, TypeMismatch,
 }
 import gleam/list
 import gleam/map
